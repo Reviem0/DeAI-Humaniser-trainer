@@ -9,7 +9,7 @@ We train a small rewriter model to turn AI-written text into text that [SlopTota
 
 The study is the contribution. Trained humanizers already exist (DIPPER, RADAR, Nicks et al. 2024, AuthorMist), so this is not meant to be another one.
 
-> **Status:** Phase 1 done: the venv, the harness client ([deai/harness.py](deai/harness.py)) and the throughput check ([scripts/check_harness.py](scripts/check_harness.py)) are in, and the results are in PLAN.md. Phases 2–6 aren't written yet. The full plan, with "done when" criteria for each phase, is in [PLAN.md](PLAN.md).
+> **Status:** Phase 1 done: the venv, the harness client ([deai/harness.py](deai/harness.py)) and the throughput check ([scripts/check_harness.py](scripts/check_harness.py)) are in. Phase 2 data and baseline scripts are in. Phase 3's reward is in [deai/reward.py](deai/reward.py), calibrated by [scripts/calibrate_reward.py](scripts/calibrate_reward.py). Results for each phase are in PLAN.md. Phases 4–6 aren't written yet. The full plan, with "done when" criteria for each phase, is in [PLAN.md](PLAN.md).
 
 ## Approach
 
@@ -26,10 +26,12 @@ The study is the contribution. Trained humanizers already exist (DIPPER, RADAR, 
 
 A rewrite gets **zero reward** if it fails any of these checks, so the model can't trade quality for a lower detector score:
 
-- **Unicode:** NFKC-stable, with no zero-width characters or homoglyphs
+- **Unicode:** NFKC-stable, with no zero-width characters or homoglyphs (characters the source itself uses are exempt)
 - **Length:** 0.8–1.2× the source word count, and at least 80 words
-- **Meaning:** embedding cosine similarity ≥ 0.85 (all-mpnet-base-v2), plus a two-way NLI entailment check on validation
-- **Fluency:** grammatical-acceptability classifier above a threshold calibrated on human text. Perplexity is deliberately not used, because low perplexity is what statistical detectors flag.
+- **Meaning:** embedding cosine similarity ≥ 0.85 (all-mpnet-base-v2, chunked so long passages aren't truncated), plus a two-way, per-sentence NLI entailment check on validation
+- **Fluency:** mean per-sentence CoLA acceptability ≥ 0.70, the 2nd percentile of human passages. Perplexity is deliberately not used, because low perplexity is what statistical detectors flag.
+
+Run the tests with `.venv\Scripts\python -m pytest`. Add `-m "not models"` to skip the tests that load the models.
 
 ## SlopTotal harness
 
