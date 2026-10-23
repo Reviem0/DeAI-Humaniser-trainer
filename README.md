@@ -143,10 +143,39 @@ The default is run `r-quick-qwen3-4b`: the quick-score reward, 3 rounds. Any ext
 ```powershell
 train.bat --rounds 1 --train-limit 8 --eval-limit 8 --n 4 --run smoke    # end-to-end smoke test
 train.bat --reward neural-quick --run r-neural-quick-qwen3-4b
-train.bat --base Qwen/Qwen2.5-1.5B-Instruct --gen-batch 64 --run r-quick
+train.bat --base Qwen/Qwen2.5-1.5B-Instruct --gen-batch 64 --run r-quick```
+
+#### Settings in `.env`
+
+To avoid retyping arguments, put the training settings in a `.env` file. The launchers read it at startup:
+
+```powershell
+copy .env.example .env    # then edit .env
 ```
 
-You can also set the defaults with the environment variables `DEAI_RUN`, `DEAI_REWARD`, `DEAI_ROUNDS`, `TB_PORT` and `SLOPTOTAL_DIR`.
+[.env.example](.env.example) lists every setting with its default. Each line is `KEY=value`, with no spaces around `=`, no quotes and no comment after the value. A setting that is commented out or left empty uses the trainer's default.
+
+| Variable | Trainer flag | Default |
+|---|---|---|
+| `DEAI_RUN` | `--run` | `r-quick-qwen3-4b` |
+| `DEAI_REWARD` | `--reward` | `quick` |
+| `DEAI_ROUNDS` | `--rounds` | `3` |
+| `DEAI_BASE` | `--base` | `Qwen/Qwen3-4B-Instruct-2507` |
+| `DEAI_N` | `--n` | `8` |
+| `DEAI_TEMPERATURE` | `--temperature` | `0.9` |
+| `DEAI_GEN_BATCH` | `--gen-batch` | `16` |
+| `DEAI_TRAIN_LIMIT`, `DEAI_EVAL_LIMIT` | `--train-limit`, `--eval-limit` | all sources |
+| `DEAI_LR` | `--lr` | `2e-5` |
+| `DEAI_BETA` | `--beta` | `0.1` |
+| `DEAI_LORA_R` | `--lora-r` | `16` |
+| `DEAI_LOSS_TYPE` | `--loss-type` | `sigmoid` |
+| `DEAI_EFFECTIVE_BATCH` | `--effective-batch` | `16` |
+| `DEAI_EXTRA_ARGS` | any other flags, space-separated | — |
+| `SLOPTOTAL_DIR` | — (where the launcher starts SlopTotal from) | `D:\AI\sloptotal` |
+| `TB_PORT` | — (TensorBoard port) | `6006` |
+| `HF_HOME` | — (Hugging Face model cache) | Hugging Face's default |
+
+Precedence, highest first: arguments passed to `train.bat`/`train.sh`, then variables already set in your shell, then `.env`. `.env` is gitignored, so each machine can have its own.
 
 To run the trainers directly:
 
@@ -173,7 +202,7 @@ Each DPO round writes its outputs to `runs/dpo-<run>/round_k/`:
 | `eval.jsonl` | Every greedy val rewrite, with its gate results and detector score |
 | `spotcheck.md` | 30 sample rewrites next to their sources, to read by hand |
 | `samples.jsonl`, `scored.jsonl`, `pairs.jsonl`, `round_stats.json` | Best-of-N samples, their rewards, the DPO pairs, and summary stats |
-| `adapter/` | The LoRA adapter trained this round |
+| `adapter/` | The LoRA adapter trained this round: the round's checkpoint. Only the LoRA weights are saved, never a merged model. The policy after round *k* is the base model plus `round_1/adapter` … `round_k/adapter`. |
 
 Read `spotcheck.md` after every round. Metrics alone won't show a shortcut that nobody anticipated.
 
@@ -190,6 +219,7 @@ Read `spotcheck.md` after every round. Metrics alone won't show a shortcut that 
 DeAI-project/
   pyproject.toml
   train.bat, train.sh # DPO training launcher (SlopTotal + TensorBoard + training)
+  .env.example        # launcher settings; copy to .env
   deai/
     harness.py        # SlopTotal client (quick/analyze/ticket polling)
     data.py           # SlopBench passages, splits, baseline table

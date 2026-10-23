@@ -10,11 +10,16 @@ REM
 REM Later arguments win, so anything passed here overrides the defaults below.
 REM Rerunning the same command resumes an interrupted run.
 REM
-REM Environment overrides: DEAI_RUN, DEAI_REWARD, DEAI_ROUNDS, TB_PORT, SLOPTOTAL_DIR
+REM Settings: copy .env.example to .env and edit it (DEAI_RUN, DEAI_REWARD, DEAI_ROUNDS,
+REM DEAI_BASE, DEAI_LR, ..., TB_PORT, SLOPTOTAL_DIR, HF_HOME). Variables already set in
+REM the environment win over .env.
 REM (Loops stay outside parenthesised blocks: cmd breaks labels and %VAR% inside them.)
 
 setlocal
 pushd "%~dp0"
+
+REM --- .env: KEY=value lines, # comments; doesn't override the environment ---
+if exist ".env" for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do if not defined %%A set "%%A=%%B"
 
 if not defined DEAI_RUN set "DEAI_RUN=r-quick-qwen3-4b"
 if not defined DEAI_REWARD set "DEAI_REWARD=quick"
@@ -71,11 +76,26 @@ start "" %TB_URL%
 
 REM --- Training ---------------------------------------------------------------
 :train
+REM Optional settings become flags only when set, so the trainer's defaults apply otherwise.
+set "ARGS="
+if defined DEAI_BASE set "ARGS=%ARGS% --base %DEAI_BASE%"
+if defined DEAI_N set "ARGS=%ARGS% --n %DEAI_N%"
+if defined DEAI_TEMPERATURE set "ARGS=%ARGS% --temperature %DEAI_TEMPERATURE%"
+if defined DEAI_GEN_BATCH set "ARGS=%ARGS% --gen-batch %DEAI_GEN_BATCH%"
+if defined DEAI_TRAIN_LIMIT set "ARGS=%ARGS% --train-limit %DEAI_TRAIN_LIMIT%"
+if defined DEAI_EVAL_LIMIT set "ARGS=%ARGS% --eval-limit %DEAI_EVAL_LIMIT%"
+if defined DEAI_LR set "ARGS=%ARGS% --lr %DEAI_LR%"
+if defined DEAI_BETA set "ARGS=%ARGS% --beta %DEAI_BETA%"
+if defined DEAI_LORA_R set "ARGS=%ARGS% --lora-r %DEAI_LORA_R%"
+if defined DEAI_LOSS_TYPE set "ARGS=%ARGS% --loss-type %DEAI_LOSS_TYPE%"
+if defined DEAI_EFFECTIVE_BATCH set "ARGS=%ARGS% --effective-batch %DEAI_EFFECTIVE_BATCH%"
+if defined DEAI_EXTRA_ARGS set "ARGS=%ARGS% %DEAI_EXTRA_ARGS%"
 set "PYTHONIOENCODING=utf-8"
 echo.
 echo Training run "%DEAI_RUN%" (reward %DEAI_REWARD%, %DEAI_ROUNDS% rounds). Ctrl+C stops; rerun to resume.
 echo.
-"%PY%" -m deai.train_dpo --run %DEAI_RUN% --reward %DEAI_REWARD% --rounds %DEAI_ROUNDS% %*
+if defined ARGS echo Settings:%ARGS%
+"%PY%" -m deai.train_dpo --run %DEAI_RUN% --reward %DEAI_REWARD% --rounds %DEAI_ROUNDS%%ARGS% %*
 set "EXITCODE=%ERRORLEVEL%"
 popd
 exit /b %EXITCODE%
