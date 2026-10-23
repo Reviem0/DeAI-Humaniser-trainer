@@ -14,6 +14,7 @@ dependencies = [
     "httpx",
     "pandas",
     "pyarrow",
+    "tensorboard",
 ]
 
 [project.optional-dependencies]
@@ -25,3 +26,4 @@ packages = ["deai"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["models: loads the real reward models (deselect with -m 'not models')"]
+

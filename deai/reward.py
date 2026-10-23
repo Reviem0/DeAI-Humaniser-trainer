@@ -13,10 +13,13 @@ for rewrites that passed all of them:
 - ``meaning``: cosine similarity of all-mpnet-base-v2 passage embeddings >= 0.85.
   mpnet truncates at 384 tokens, so passages are embedded in sentence-aligned
   chunks and mean-pooled; otherwise the second half of a rewrite would go unseen.
-- ``nli`` (optional, for validation): every sentence of each text must be
-  entailed by the other text, in both directions. A sentence's entailment is its
-  max over windows of the other text; the passage score is the *least* entailed
-  sentence, since one flipped fact in eight sentences barely moves a mean.
+- ``nli`` (optional): the sentences of each text must be entailed by the other
+  text, in both directions (rewrite->source catches dropped facts, source->rewrite
+  added or changed ones). A sentence counts as entailed if its max over windows
+  of the other text is >= 0.5; each direction's score is the share of entailed
+  sentences. A mean probability would let one flipped fact in eight sentences
+  through, and the single worst sentence fails long passages on one NLI false
+  negative (Phase 4 zero-shot rewrites, see PLAN.md).
 - ``fluency``: mean P(acceptable) per sentence from a CoLA classifier, above a
   threshold calibrated on human passages (``scripts/calibrate_reward.py``).
   Perplexity is deliberately not used: low perplexity is what statistical
@@ -53,8 +56,10 @@ class RewardConfig:
     min_similarity: float = 0.85
     # 2nd percentile of train+val human passages (scripts/calibrate_reward.py); see PLAN.md.
     min_fluency: float = 0.70
-    # Provisional: re-check on Phase 4's zero-shot rewrites.
-    min_entailment: float = 0.5
+    # Share of sentences entailed, per direction: a 5-sentence passage must keep
+    # all 5; 1 miss is tolerated from 10 sentences up.
+    min_entailment: float = 0.9
+    nli_sentence_threshold: float = 0.5
     use_nli: bool = False
     chunk_words: int = 150  # mpnet's 384-token limit is ~250 words; leave margin
 
@@ -239,6 +244,35 @@ class HFQualityModels:
 
 Detector = Callable[[list[str]], Awaitable[list[float]]]  # texts -> 0-100 each
 
+# Detector families for the transfer study, by SlopTotal's engine_type. The
+# "classifier" and "embedding" engines are fine-tuned transformers too.
+FAMILIES: dict[str, tuple[str, ...]] = {
+    "neural": ("neural", "classifier", "embedding"),
+    "statistical": ("statistical",),
+    "heuristic": ("linguistic",),
+}
+
+# Phase 4 reward sources: name -> (endpoint, family or None for the overall score).
+REWARD_SOURCES: dict[str, tuple[str, str | None]] = {
+    "quick": ("quick", None),             # R-quick, ~Fakespot
+    "neural-quick": ("quick", "neural"),  # the 4 neural engines quick-score runs
+    "neural": ("analyze", "neural"),      # R-neural
+    "stat": ("analyze", "statistical"),   # R-stat
+    "full": ("analyze", None),            # R-full
+}
+
+
+def family_engines(engines: dict, family: str) -> list[str]:
+    """Engine keys of a family, from ``SlopTotalClient.engines()``."""
+    types = FAMILIES[family]
+    return sorted(k for k, e in engines.items() if e.engine_type in types)
+
+
+async def make_detector(client: SlopTotalClient, reward_source: str) -> Detector:
+    endpoint, family = REWARD_SOURCES[reward_source]
+    engines = family_engines(await client.engines(), family) if family else None
+    return sloptotal_detector(client, endpoint, engines)
+
 
 def sloptotal_detector(client: SlopTotalClient, endpoint: str = "quick",
                        engines: Sequence[str] | None = None) -> Detector:
@@ -359,7 +393,7 @@ class Reward:
         return [float(np.mean(probs[s:e])) for s, e in zip(bounds[:-1], bounds[1:])]
 
     def entailment(self, sources: Sequence[str], rewrites: Sequence[str]) -> list[tuple[float, float]]:
-        """(source entails rewrite, rewrite entails source) per pair, each the worst sentence's."""
+        """(source entails rewrite, rewrite entails source) per pair: share of entailed sentences."""
         # Premises are ~3-sentence windows of the other text, which keeps pairs under 512 tokens.
         premises, hyps, owner = [], [], []
         for p_i, (src, rw) in enumerate(zip(sources, rewrites)):
@@ -375,7 +409,8 @@ class Reward:
         per_dir: dict[tuple[int, int], list[float]] = {}
         for (p_i, d, _), v in best.items():
             per_dir.setdefault((p_i, d), []).append(v)
-        return [tuple(float(min(per_dir.get((p_i, d), [0.0]))) for d in (0, 1))
+        t = self.config.nli_sentence_threshold
+        return [tuple(float(np.mean(np.array(per_dir.get((p_i, d), [0.0])) >= t)) for d in (0, 1))
                 for p_i in range(len(sources))]
 
 
