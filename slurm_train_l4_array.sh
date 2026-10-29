@@ -12,8 +12,7 @@
 #   sbatch --array=0,2 slurm_train_l4_array.sh        # only quick and neural
 #   DEAI_RUN_SUFFIX=lr1e-5 sbatch slurm_train_l4_array.sh --lr 1e-5   # runs r-<reward>-lr1e-5
 #
-# Resubmitting the same command resumes every run (finished stages are skipped),
-# which is also why the job is requeueable.
+# Resubmitting the same command resumes every run (finished stages are skipped).
 #
 # L4 settings (24 GB), versus the 16 GB defaults:
 #   --vram medium    high needs ~24 GB, the whole card, so the scorers still swap out
@@ -32,7 +31,6 @@
 #SBATCH --mem=64G
 #SBATCH --time=60:00:00
 #SBATCH --array=0-4
-#SBATCH --requeue
 #SBATCH --output=slurm-%x-%A_%a.out
 
 set -euo pipefail

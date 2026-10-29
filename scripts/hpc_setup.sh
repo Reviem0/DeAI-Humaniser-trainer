@@ -43,13 +43,28 @@ PY="$ROOT/.venv/bin/python"
 "$PY" -m pip install -e . --no-deps -q
 # Linear-attention kernels for Qwen3.5 bases (Qwen/Qwen3.5-9B, ...). Without them transformers
 # falls back to a correct but much slower PyTorch path; Qwen3 bases don't use them. Linux only.
-# The constraint keeps torch/transformers at the pinned versions. causal-conv1d builds
-# against the installed torch (it fetches a prebuilt wheel when one matches, else needs nvcc:
-# `module load cuda` first).
+# The constraint keeps torch/transformers at the pinned versions.
 "$PY" -m pip install -c requirements.txt flash-linear-attention==0.6.0 \
     || echo "Warning: flash-linear-attention failed to install; Qwen3.5 bases will be slow." >&2
-"$PY" -m pip install -c requirements.txt --no-build-isolation causal-conv1d==1.7.0 \
-    || echo "Warning: causal-conv1d failed to build; Qwen3.5 bases will be slower (try: module load cuda)." >&2
+# causal-conv1d has no prebuilt wheel for every torch, so it may compile, which needs an
+# nvcc of torch's CUDA major version (torch refuses to build across majors). Optional:
+# without it only the short depthwise convolutions use the PyTorch fallback.
+if "$PY" -c 'import causal_conv1d' 2>/dev/null; then
+    echo "causal-conv1d already installed"
+else
+    TORCH_CUDA=$("$PY" -c 'import torch; print(torch.version.cuda or "")')
+    NVCC_CUDA=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9.]*\).*/\1/p')
+    if [[ -n "$NVCC_CUDA" && "${NVCC_CUDA%%.*}" == "${TORCH_CUDA%%.*}" ]]; then
+        export CUDA_HOME="${CUDA_HOME:-$(dirname "$(dirname "$(command -v nvcc)")")}"
+        "$PY" -m pip install -q ninja
+        MAX_JOBS="${MAX_JOBS:-4}" "$PY" -m pip install -c requirements.txt --no-build-isolation causal-conv1d==1.7.0 \
+            || echo "Warning: causal-conv1d failed to build; skipped (optional)." >&2
+    else
+        echo "Warning: skipping causal-conv1d (optional): it needs nvcc for CUDA ${TORCH_CUDA%%.*}.x to match torch" \
+             "(CUDA $TORCH_CUDA), found ${NVCC_CUDA:-no nvcc}. Load one first, e.g. \`module avail cuda\`," \
+             "\`module load cuda/${TORCH_CUDA}\`, then rerun this script." >&2
+    fi
+fi
 
 # --- 2. data --------------------------------------------------------------------
 step "2/4 SlopBench corpus and passages"

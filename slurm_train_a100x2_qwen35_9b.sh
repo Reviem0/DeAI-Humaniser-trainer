@@ -15,8 +15,7 @@
 #   DEAI_RUN=smoke-9b sbatch slurm_train_a100x2_qwen35_9b.sh --rounds 1 --train-limit 8 --eval-limit 8 --n 4
 #
 # Later arguments win, so anything passed here overrides the defaults below.
-# Resubmitting the same command resumes the run (finished stages are skipped), which
-# is also why the job is requeueable. Submit one job per reward source.
+# Resubmitting the same command resumes the run (finished stages are skipped). Submit one job per reward source.
 #
 # Settings for Qwen3.5-9B (~18 GB of bf16 weights, ~32 KB of KV cache per token):
 #   80 GB cards: --vram high (scorers stay loaded), --gen-batch 128, --batch-size 2
@@ -33,7 +32,6 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --time=24:00:00
-#SBATCH --requeue
 #SBATCH --output=slurm-%x-%j.out
 
 set -euo pipefail

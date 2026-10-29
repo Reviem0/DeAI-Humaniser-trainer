@@ -9,8 +9,7 @@
 #   DEAI_RUN=smoke sbatch slurm_train_a100.sh --rounds 1 --train-limit 8 --eval-limit 8 --n 4
 #
 # Later arguments win, so anything passed here overrides the defaults below.
-# Resubmitting the same command resumes the run (finished stages are skipped), which
-# is also why the job is requeueable.
+# Resubmitting the same command resumes the run (finished stages are skipped).
 #
 # A100 settings, versus the 16 GB defaults:
 #   --vram high      policy, detectors and quality models all stay resident (~24 GB),
@@ -32,7 +31,6 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=48:00:00
-#SBATCH --requeue
 #SBATCH --output=slurm-%x-%j.out
 
 set -euo pipefail

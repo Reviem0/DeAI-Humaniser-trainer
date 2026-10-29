@@ -13,8 +13,7 @@
 #   sbatch --gres=gpu:4 slurm_train_l4_multi.sh          # fewer GPUs: every visible one is used
 #
 # Later arguments win, so anything passed here overrides the defaults below.
-# Resubmitting the same command resumes the run (finished stages are skipped), which
-# is also why the job is requeueable.
+# Resubmitting the same command resumes the run (finished stages are skipped).
 #
 # L4 settings (24 GB per GPU, each worker has its own), versus the 16 GB defaults:
 #   --vram medium    high needs ~24 GB, the whole card, so the scorers still swap out
@@ -31,7 +30,6 @@
 #SBATCH --cpus-per-task=28
 #SBATCH --mem=160G
 #SBATCH --time=24:00:00
-#SBATCH --requeue
 #SBATCH --output=slurm-%x-%j.out
 
 set -euo pipefail
