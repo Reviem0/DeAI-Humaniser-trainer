@@ -11,7 +11,7 @@ REM Later arguments win, so anything passed here overrides the defaults below.
 REM Rerunning the same command resumes an interrupted run.
 REM
 REM Settings: copy .env.example to .env and edit it (DEAI_RUN, DEAI_REWARD, DEAI_ROUNDS,
-REM DEAI_BASE, DEAI_LR, ..., TB_PORT, SLOPTOTAL_DIR, HF_HOME). Variables already set in
+REM DEAI_BASE, DEAI_LR, ..., TB_PORT, HF_HOME). Variables already set in
 REM the environment win over .env.
 REM (Loops stay outside parenthesised blocks: cmd breaks labels and %VAR% inside them.)
 
@@ -25,7 +25,6 @@ if not defined DEAI_RUN set "DEAI_RUN=r-quick-qwen3-4b"
 if not defined DEAI_REWARD set "DEAI_REWARD=quick"
 if not defined DEAI_ROUNDS set "DEAI_ROUNDS=3"
 if not defined TB_PORT set "TB_PORT=6006"
-if not defined SLOPTOTAL_DIR set "SLOPTOTAL_DIR=D:\AI\sloptotal"
 set "PY=.venv\Scripts\python.exe"
 set "TB_URL=http://localhost:%TB_PORT%/"
 
@@ -33,28 +32,6 @@ if not exist "%PY%" (
     echo Error: %PY% not found. Create the venv first, see README.md "Setup".
     goto :fail
 )
-
-REM --- SlopTotal: the detector server must be up before scoring -------------
-curl -sf http://localhost:8000/health >nul 2>&1
-if not errorlevel 1 goto :sloptotal_up
-if not exist "%SLOPTOTAL_DIR%\scripts\start.bat" (
-    echo Error: SlopTotal is not running on http://localhost:8000 and
-    echo %SLOPTOTAL_DIR%\scripts\start.bat was not found. Start it, or set SLOPTOTAL_DIR.
-    goto :fail
-)
-echo Starting SlopTotal in a new window...
-start "SlopTotal" /D "%SLOPTOTAL_DIR%" cmd /k scripts\start.bat
-set /a WAITED=0
-:wait_sloptotal
-timeout /t 2 /nobreak >nul
-set /a WAITED+=2
-curl -sf http://localhost:8000/health >nul 2>&1
-if not errorlevel 1 goto :sloptotal_up
-if %WAITED% LSS 300 goto :wait_sloptotal
-echo Error: SlopTotal did not answer within 5 minutes. Check its window.
-goto :fail
-:sloptotal_up
-echo SlopTotal is up.
 
 REM --- TensorBoard: start once, reuse if already running --------------------
 curl -sf %TB_URL% >nul 2>&1

@@ -1,19 +1,18 @@
 """Phase 2: score every passage once and write data/baseline_scores.parquet.
 
-Scores go to data/cache/<endpoint>.jsonl as they arrive, so an interrupted run
-resumes where it stopped. At SlopTotal's CPU speed, analyze over all ~3.2k
-passages takes ~3 h; quick-score ~30 min.
+Detectors run in-process (deai.detectors) and record every engine of each
+endpoint. Scores are appended to data/cache/<endpoint>.jsonl one chunk at a
+time, so an interrupted run resumes where it stopped.
 
     .venv\\Scripts\\python scripts\\build_data.py          # first
     .venv\\Scripts\\python scripts\\score_baseline.py
-    .venv\\Scripts\\python scripts\\score_baseline.py --limit 20     # smoke test
+    .venv\\Scripts\\python scripts\\score_baseline.py --limit 20 --out-dir %TEMP%\\deai   # smoke test
     .venv\\Scripts\\python scripts\\score_baseline.py --summary-only
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import sys
 import time
@@ -25,18 +24,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from deai.data import BASELINE, DATA_DIR, load_passages  # noqa: E402
-from deai.harness import HarnessError, SlopTotalClient, TextRejected  # noqa: E402
+from deai.detectors import BACKEND, Detectors, Score  # noqa: E402
 from deai.metrics import auroc, tpr_at_fpr  # noqa: E402
 
-CACHE_DIR = DATA_DIR / "cache"
-ENGINES_JSON = DATA_DIR / "engines.json"
-SLOPTOTAL_DB = Path(r"D:\AI\sloptotal\data")
 PREFIX = {"quick": "q_", "analyze": "a_"}
 LIKELY_AI = 55.0
 
 
-def read_cache(endpoint: str) -> dict[str, dict]:
-    path = CACHE_DIR / f"{endpoint}.jsonl"
+def read_cache(cache_dir: Path, endpoint: str) -> dict[str, dict]:
+    path = cache_dir / f"{endpoint}.jsonl"
     if not path.exists():
         return {}
     out = {}
@@ -44,56 +40,50 @@ def read_cache(endpoint: str) -> dict[str, dict]:
         for line in f:
             if line.strip():
                 r = json.loads(line)
-                out[r["id"]] = r
+                # Rows from the SlopTotal server (no "detectors" key) are rescored, so the
+                # baseline never mixes its scores (failed engines read 0.0) with in-process ones.
+                if r.get("detectors") == BACKEND:
+                    out[r["id"]] = r
     return out
 
 
-def db_size_mb() -> float:
-    return sum(p.stat().st_size for p in SLOPTOTAL_DB.glob("sloptotal.db*")) / 2**20
-
-
-async def score_endpoint(st: SlopTotalClient, df: pd.DataFrame, endpoint: str) -> None:
-    done = read_cache(endpoint)
+def score_endpoint(det: Detectors, df: pd.DataFrame, endpoint: str, cache_dir: Path, chunk: int) -> None:
+    done = read_cache(cache_dir, endpoint)
     todo = df[~df.id.isin(done)]
     print(f"[{endpoint}] {len(done)} cached, {len(todo)} to score", flush=True)
     if todo.empty:
         return
 
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    engines = det.endpoint_engines(endpoint)  # all of them, not just the ones the overall needs
     t0 = time.perf_counter()
     n_ok = n_fail = 0
-
-    async def one(pid: str, text: str):
-        try:
-            return pid, await st.score(text, endpoint)  # type: ignore[arg-type]
-        except (HarnessError, TextRejected) as e:
-            return pid, e
-
-    with (CACHE_DIR / f"{endpoint}.jsonl").open("a", encoding="utf-8") as f:
-        tasks = [asyncio.create_task(one(r.id, r.text)) for r in todo.itertuples()]
-        for fut in asyncio.as_completed(tasks):
-            pid, res = await fut
-            if isinstance(res, Exception):
-                n_fail += 1
-                print(f"  FAILED {pid}: {res}", flush=True)
-                continue
-            f.write(json.dumps({"id": pid, "overall": res.overall, "verdict": res.verdict,
-                                "engines": res.engines, "latency_s": round(res.latency_s, 3),
-                                "report_id": res.report_id}) + "\n")
+    with (cache_dir / f"{endpoint}.jsonl").open("a", encoding="utf-8") as f:
+        for i in range(0, len(todo), chunk):
+            part = todo.iloc[i:i + chunk]
+            results = det.score_many(part.text.tolist(), endpoint, engines=engines)
+            for pid, res in zip(part.id, results):
+                if not isinstance(res, Score):
+                    n_fail += 1
+                    print(f"  FAILED {pid}: {type(res).__name__}: {res}", flush=True)
+                    continue
+                # report_id was SlopTotal's; kept as null so the row shape matches older caches.
+                f.write(json.dumps({"id": pid, "overall": res.overall, "verdict": res.verdict,
+                                    "engines": res.engines, "latency_s": round(res.latency_s, 3),
+                                    "report_id": None, "detectors": BACKEND}) + "\n")
+                n_ok += 1
             f.flush()
-            n_ok += 1
-            if n_ok % 50 == 0 or n_ok == len(todo):
-                el = time.perf_counter() - t0
-                rate = n_ok / el
-                eta = (len(todo) - n_ok - n_fail) / rate if rate else 0
-                print(f"  {n_ok}/{len(todo)}  {rate:.2f}/s  ETA {eta / 60:.0f} min", flush=True)
+            el = time.perf_counter() - t0
+            rate = (n_ok + n_fail) / el
+            eta = (len(todo) - n_ok - n_fail) / rate if rate else 0
+            print(f"  {n_ok + n_fail}/{len(todo)}  {rate:.2f}/s  ETA {eta / 60:.0f} min", flush=True)
     print(f"[{endpoint}] done: {n_ok} ok, {n_fail} failed, {time.perf_counter() - t0:.0f}s", flush=True)
 
 
-def build_table(df: pd.DataFrame, endpoints: list[str]) -> pd.DataFrame:
+def build_table(df: pd.DataFrame, endpoints: list[str], cache_dir: Path) -> pd.DataFrame:
     out = df.copy()
     for ep in endpoints:
-        cache = read_cache(ep)
+        cache = read_cache(cache_dir, ep)
         p = PREFIX[ep]
         rows = []
         for pid, r in cache.items():
@@ -150,44 +140,42 @@ def summarize(t: pd.DataFrame, endpoints: list[str], families: dict[str, str]) -
         print(e.to_string(index=False))
 
 
-async def main() -> int:
+def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--base-url", default="http://localhost:8000")
     ap.add_argument("--endpoints", default="quick,analyze")
-    ap.add_argument("--limit", type=int, default=None, help="score only the first N passages (smoke test)")
+    ap.add_argument("--limit", type=int, default=None, help="score only N sampled passages (smoke test)")
     ap.add_argument("--summary-only", action="store_true")
-    ap.add_argument("--quick-concurrency", type=int, default=1, help="quick-score didn't scale past 1 in Phase 1")
-    ap.add_argument("--analyze-concurrency", type=int, default=2)
+    ap.add_argument("--chunk", type=int, default=32, help="texts per score_many call / cache append")
+    ap.add_argument("--out-dir", type=Path, default=DATA_DIR,
+                    help="where cache/, engines.json and baseline_scores.parquet go (default: data/)")
     args = ap.parse_args()
     endpoints = [e for e in args.endpoints.split(",") if e]
+    cache_dir = args.out_dir / "cache"
+    engines_json = args.out_dir / "engines.json"
+    baseline = BASELINE if args.out_dir == DATA_DIR else args.out_dir / BASELINE.name
 
     df = load_passages()
     if args.limit:
         df = df.sample(n=args.limit, random_state=0)
 
     if not args.summary_only:
-        async with SlopTotalClient(args.base_url, concurrency={"quick": args.quick_concurrency,
-                                                               "analyze": args.analyze_concurrency}) as st:
-            if not await st.health():
-                print(f"SlopTotal is not answering at {args.base_url}. Start it with scripts\\start.bat.")
-                return 1
-            engines = await st.engines()
-            ENGINES_JSON.write_text(json.dumps(
-                {k: {"name": e.name, "engine_type": e.engine_type} for k, e in engines.items()}, indent=1),
-                encoding="utf-8")
-            db0 = db_size_mb()
-            for ep in endpoints:
-                await score_endpoint(st, df, ep)
-            print(f"SlopTotal DB: {db0:.1f} MB -> {db_size_mb():.1f} MB")
+        det = Detectors()
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        engines_json.write_text(json.dumps(
+            {k: {"name": e.name, "engine_type": e.engine_type} for k, e in det.engines().items()}, indent=1),
+            encoding="utf-8")
+        for ep in endpoints:
+            score_endpoint(det, df, ep, cache_dir, args.chunk)
+        det.unload()
 
-    families = {k: v["engine_type"] for k, v in json.loads(ENGINES_JSON.read_text("utf-8")).items()}
-    table = build_table(load_passages(), endpoints)
+    families = {k: v["engine_type"] for k, v in json.loads(engines_json.read_text("utf-8")).items()}
+    table = build_table(load_passages(), endpoints, cache_dir)
     if not args.limit:
-        table.to_parquet(BASELINE, index=False)
-        print(f"Wrote {BASELINE} ({len(table)} rows)")
+        table.to_parquet(baseline, index=False)
+        print(f"Wrote {baseline} ({len(table)} rows)")
     summarize(table if not args.limit else table[table.id.isin(df.id)], endpoints, families)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(main())

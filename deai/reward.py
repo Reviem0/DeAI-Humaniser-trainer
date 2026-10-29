@@ -8,7 +8,7 @@ for rewrites that passed all of them:
   bidi, soft hyphen, ...); no word mixing Latin with another script; no
   non-ASCII letter or mark the source doesn't already use (homoglyphs,
   diacritic tricks).
-- ``length``: 0.8-1.2x the source's word count and >= 80 words, so SlopTotal's
+- ``length``: 0.8-1.2x the source's word count and >= 80 words, so the detectors'
   short-text shrinkage toward neutral can't be used.
 - ``meaning``: cosine similarity of all-mpnet-base-v2 passage embeddings >= 0.85.
   mpnet truncates at 384 tokens, so passages are embedded in sentence-aligned
@@ -30,6 +30,7 @@ Models load lazily and are injectable, so tests can swap in stubs.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 import unicodedata
@@ -38,7 +39,7 @@ from typing import Awaitable, Callable, Protocol, Sequence
 
 import numpy as np
 
-from deai.harness import HarnessError, SlopTotalClient, TextRejected
+from deai.detectors import DetectorError, Detectors, TextRejected
 
 EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
 # Krishna et al. 2020's fluency classifier; label 0 = acceptable.
@@ -262,26 +263,31 @@ REWARD_SOURCES: dict[str, tuple[str, str | None]] = {
 }
 
 
-def family_engines(engines: dict, family: str) -> list[str]:
-    """Engine keys of a family, from ``SlopTotalClient.engines()``."""
+def family_engines(detectors: Detectors, endpoint: str, family: str) -> list[str]:
+    """Keys of a family's engines among those the endpoint runs."""
     types = FAMILIES[family]
-    return sorted(k for k, e in engines.items() if e.engine_type in types)
+    info = detectors.engines()
+    return sorted(k for k in detectors.endpoint_engines(endpoint) if info[k].engine_type in types)
 
 
-async def make_detector(client: SlopTotalClient, reward_source: str) -> Detector:
+def make_detector(detectors: Detectors, reward_source: str) -> Detector:
     endpoint, family = REWARD_SOURCES[reward_source]
-    engines = family_engines(await client.engines(), family) if family else None
-    return sloptotal_detector(client, endpoint, engines)
+    engines = family_engines(detectors, endpoint, family) if family else None
+    if engines == []:
+        raise ValueError(f"{endpoint} runs no {family} engines")
+    return local_detector(detectors, endpoint, engines)
 
 
-def sloptotal_detector(client: SlopTotalClient, endpoint: str = "quick",
-                       engines: Sequence[str] | None = None) -> Detector:
+def local_detector(detectors: Detectors, endpoint: str = "quick",
+                   engines: Sequence[str] | None = None) -> Detector:
     """Overall score, or with ``engines`` the mean of those engines (x100): R-neural, R-stat.
 
-    A text the server can't score raises; ``Reward.score`` turns that into ``reward=None``.
+    A text that can't be scored comes back as its exception; ``Reward.score`` turns
+    that into ``reward=None``.
     """
     async def detect(texts: list[str]) -> list[float]:
-        results = await client.score_many(texts, endpoint)  # type: ignore[arg-type]
+        results = await asyncio.to_thread(detectors.score_many, texts, endpoint,  # type: ignore[arg-type]
+                                          engines or (), engines is None)
         out = []
         for r in results:
             if isinstance(r, BaseException):
@@ -289,9 +295,7 @@ def sloptotal_detector(client: SlopTotalClient, endpoint: str = "quick",
             elif engines is None:
                 out.append(r.overall)
             else:
-                vals = [r.engines[k] for k in engines if k in r.engines]
-                out.append(100 * sum(vals) / len(vals) if vals else HarnessError(
-                    f"none of {list(engines)} in {endpoint} result"))
+                out.append(100 * sum(r.engines[k] for k in engines) / len(engines))
         return out
     return detect
 
@@ -316,7 +320,7 @@ class Reward:
             raise RuntimeError("Reward has no detector; use check_gates() for gates only")
         try:
             scores = await self.detector([rewrites[i].strip() for i in todo])
-        except (HarnessError, TextRejected) as e:
+        except (DetectorError, TextRejected) as e:
             scores = [e] * len(todo)
         for i, s in zip(todo, scores):
             r = results[i]

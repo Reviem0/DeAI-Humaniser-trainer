@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from deai.data import load_passages
-from deai.harness import SlopTotalClient
+from deai.detectors import MIN_TEXT_LENGTH, Detectors
 from deai.reward import Gate, HFQualityModels, Reward, RewardConfig, RewardResult, make_detector
 
 LIKELY_AI = 55.0
@@ -59,14 +59,13 @@ def result_row(r: RewardResult) -> dict:
 
 
 class Scorer:
-    """Reward models stay loaded across calls; a SlopTotal client is opened per call."""
+    """Reward models and detectors stay loaded across calls; ``release()`` frees the detectors."""
 
-    def __init__(self, reward_source: str, base_url: str = "http://localhost:8000",
-                 concurrency: dict[str, int] | None = None, config: RewardConfig = RewardConfig()):
+    def __init__(self, reward_source: str, config: RewardConfig = RewardConfig(),
+                 detectors: Detectors | None = None):
         self.reward_source = reward_source
-        self.base_url = base_url
-        # Phase 1: quick-score doesn't scale past 1 on CPU; more only queues server-side.
-        self.concurrency = concurrency or {"quick": 2, "analyze": 2}
+        self.detectors = detectors or Detectors()
+        self.detector = make_detector(self.detectors, reward_source)
         self.models = HFQualityModels()
         self.config = config
 
@@ -75,38 +74,28 @@ class Scorer:
         return asyncio.run(self._score(sources, rewrites, finished, use_nli))
 
     def detect(self, texts: Sequence[str]) -> list[float | None]:
-        """Detector score for any text (no gates); None where the server refused or failed."""
-        async def go():
-            async with self._client() as st:
-                detector = await make_detector(st, self.reward_source)
-                ok = [i for i, t in enumerate(texts) if len(t.strip()) >= 50]
-                scores = await detector([texts[i].strip() for i in ok]) if ok else []
-                out: list[float | None] = [None] * len(texts)
-                for i, s in zip(ok, scores):
-                    out[i] = None if isinstance(s, BaseException) else float(s)
-                return out
-        return asyncio.run(go())
+        """Detector score for any text (no gates); None where it's too short or an engine failed."""
+        ok = [i for i, t in enumerate(texts) if len(t.strip()) >= MIN_TEXT_LENGTH]
+        scores = asyncio.run(self.detector([texts[i].strip() for i in ok])) if ok else []
+        out: list[float | None] = [None] * len(texts)
+        for i, s in zip(ok, scores):
+            out[i] = None if isinstance(s, BaseException) else float(s)
+        return out
 
-    def _client(self) -> SlopTotalClient:
-        return SlopTotalClient(self.base_url, concurrency=self.concurrency)
+    def release(self) -> None:
+        """Free the detectors' GPU memory before training; they reload on the next score."""
+        self.detectors.unload()
 
     async def _score(self, sources, rewrites, finished, use_nli):
-        async with self._client() as st:
-            reward = Reward(await make_detector(st, self.reward_source), self.models,
-                            dataclasses.replace(self.config, use_nli=use_nli))
-            finished = finished if finished is not None else [True] * len(rewrites)
-            idx = [i for i, f in enumerate(finished) if f]
-            scored = await reward.score([sources[i] for i in idx], [rewrites[i] for i in idx]) if idx else []
+        reward = Reward(self.detector, self.models, dataclasses.replace(self.config, use_nli=use_nli))
+        finished = finished if finished is not None else [True] * len(rewrites)
+        idx = [i for i, f in enumerate(finished) if f]
+        scored = await reward.score([sources[i] for i in idx], [rewrites[i] for i in idx]) if idx else []
         # A rewrite cut off at max_new_tokens gets 0 like any other gate failure.
         out = [RewardResult(0.0, [Gate("finished", False, detail="hit max_new_tokens")]) for _ in rewrites]
         for i, r in zip(idx, scored):
             out[i] = r
         return out
-
-
-async def check_server(base_url: str) -> bool:
-    async with SlopTotalClient(base_url) as st:
-        return await st.health()
 
 
 # ----------------------------------------------------------------------
@@ -127,6 +116,11 @@ def evaluate(model, tok, val: pd.DataFrame, scorer: Scorer, out_dir: Path,
     samples = [s[0] for s in generate(model, tok, val.text.tolist(), n=1, temperature=0.0,
                                       max_seqs_per_batch=gen_batch)]
     gen_s = time.perf_counter() - t0
+    # The policy (~8 GB) and the detectors don't both fit beside the quality models, and an
+    # out-of-memory engine would score None. Callers drop the model after evaluate().
+    model.to("cpu")
+    from deai.policy import release_gpu
+    release_gpu()
     rewrites = [s.text for s in samples]
     results = scorer.score(val.text.tolist(), rewrites, [s.finished for s in samples], use_nli=True)
     det = scorer.detect(rewrites)
@@ -140,6 +134,9 @@ def evaluate(model, tok, val: pd.DataFrame, scorer: Scorer, out_dir: Path,
     write_jsonl(out_dir / "eval.jsonl", rows)
     metrics = summarize_eval(rows)
     metrics["generation_s"] = round(gen_s, 1)
+    if metrics["detector_failed"]:
+        print(f"WARNING: {metrics['detector_failed']} detector failures in eval (see eval.jsonl 'error')",
+              flush=True)
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     write_spotcheck(rows, out_dir / "spotcheck.md")
     return metrics
@@ -160,6 +157,8 @@ def summarize_eval(rows: list[dict]) -> dict:
         "failed_gate_counts": df.failed_gate.fillna("passed").value_counts().to_dict(),
         "finished": round(float(df.finished.mean()), 3),
         "mean_reward": round(float(df.reward.fillna(0).mean()), 4),
+        # None scores (engine failed) count as 0 / not evading above; this says how many there were.
+        "detector_failed": int(df["error"].notna().sum()) if "error" in df else 0,
         "source_detector_mean": round(float(src.mean()), 2) if len(src) else None,
         "source_likely_ai": round(float((src >= LIKELY_AI).mean()), 3) if len(src) else None,
         "rewrite_detector_mean": round(float(det.mean()), 2) if len(det) else None,

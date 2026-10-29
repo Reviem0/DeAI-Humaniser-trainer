@@ -24,8 +24,9 @@ from pathlib import Path
 
 from deai import policy
 from deai.reward import REWARD_SOURCES
-from deai.rollout import Scorer, check_server, evaluate, load_sources, source_scores, write_jsonl
+from deai.rollout import Scorer, evaluate, load_sources, source_scores, write_jsonl
 from deai.tblog import RunLog
+from deai.detectors import BACKEND
 from deai.train_dpo import RUNS, adapters_up_to
 
 
@@ -68,7 +69,6 @@ def main() -> int:
     ap.add_argument("--run", required=True, help="outputs go to runs/grpo-<run>/")
     ap.add_argument("--reward", choices=sorted(REWARD_SOURCES), default="quick")
     ap.add_argument("--base", default=policy.BASE_MODEL)
-    ap.add_argument("--base-url", default="http://localhost:8000")
     ap.add_argument("--init-from", type=Path, default=None, help="a 4A run dir to start from")
     ap.add_argument("--init-round", type=int, default=None, help="its round (default: last with an adapter)")
     ap.add_argument("--num-generations", type=int, default=8)
@@ -99,11 +99,7 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "config.json").write_text(json.dumps(
         {**{k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
-         "instruction": policy.INSTRUCTION}, indent=1), encoding="utf-8")
-    if not asyncio.run(check_server(args.base_url)):
-        print(f"SlopTotal is not answering at {args.base_url}. Start it with scripts\\start.bat.")
-        return 1
-
+         "instruction": policy.INSTRUCTION, "detectors": BACKEND}, indent=1), encoding="utf-8")
     init = []
     if args.init_from:
         k = args.init_round or max(int(p.parent.name.split("_")[1])
@@ -111,7 +107,7 @@ def main() -> int:
         init = adapters_up_to(args.init_from, k)
         print(f"starting from {args.init_from.name} round {k}")
 
-    scorer = Scorer(args.reward, args.base_url)
+    scorer = Scorer(args.reward)
     train = load_sources("train", args.train_limit)
     ds = Dataset.from_list([{"prompt": policy.messages(r.text), "source": r.text, "id": r.id}
                             for r in train.itertuples()])
@@ -153,7 +149,7 @@ def main() -> int:
     last = max((p for p in (run_dir / "checkpoints").glob("checkpoint-*")),
                key=lambda p: int(p.name.split("-")[1]), default=None)
     trainer.train(resume_from_checkpoint=str(last) if last else None)
-    tb_cb.tb_writer.close()
+    # Save first; TensorBoardCallback closes its writer itself in on_train_end.
     adapter = run_dir / "adapter"
     trainer.model.save_pretrained(str(adapter))
     (run_dir / "train_log.json").write_text(json.dumps(trainer.state.log_history, indent=1), encoding="utf-8")

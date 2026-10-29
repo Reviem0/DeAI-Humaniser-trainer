@@ -1,7 +1,7 @@
 [project]
 name = "deai"
 version = "0.1.0"
-description = "Detector red-teaming: train a rewriter against SlopTotal and study transfer across detector families"
+description = "Detector red-teaming: train a rewriter against in-process ports of SlopTotal's detectors and study transfer across detector families"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     # torch: install the CUDA 12.8 build first, see README

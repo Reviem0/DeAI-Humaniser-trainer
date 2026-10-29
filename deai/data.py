@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
 
-SLOPBENCH = Path(r"D:\AI\sloptotal\tests\eval\slopbench\corpus")
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+# scripts/fetch_slopbench.py puts the corpus here, pinned to one SlopTotal commit.
+SLOPBENCH = Path(os.environ.get("DEAI_SLOPBENCH", DATA_DIR / "slopbench"))
 PASSAGES = DATA_DIR / "passages.parquet"
 BASELINE = DATA_DIR / "baseline_scores.parquet"
 

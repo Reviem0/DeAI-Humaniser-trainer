@@ -12,7 +12,7 @@
 # Works in Git Bash on Windows and on Linux/macOS.
 #
 # Settings: copy .env.example to .env and edit it (DEAI_RUN, DEAI_REWARD, DEAI_ROUNDS,
-# DEAI_BASE, DEAI_LR, ..., TB_PORT, SLOPTOTAL_DIR, HF_HOME). Variables already set in
+# DEAI_BASE, DEAI_LR, ..., TB_PORT, HF_HOME). Variables already set in
 # the environment win over .env.
 
 set -euo pipefail
@@ -31,7 +31,6 @@ DEAI_RUN="${DEAI_RUN:-r-quick-qwen3-4b}"
 DEAI_REWARD="${DEAI_REWARD:-quick}"
 DEAI_ROUNDS="${DEAI_ROUNDS:-3}"
 TB_PORT="${TB_PORT:-6006}"
-SLOPTOTAL_DIR="${SLOPTOTAL_DIR:-/d/AI/sloptotal}"
 
 if [[ -x .venv/Scripts/python.exe ]]; then
     PY=.venv/Scripts/python.exe   # Windows venv
@@ -62,23 +61,6 @@ open_url() {
 }
 
 mkdir -p runs
-
-# --- SlopTotal: the detector server must be up before scoring ------------------
-if ! up http://localhost:8000/health; then
-    if [[ -f "$SLOPTOTAL_DIR/scripts/start.sh" ]]; then
-        echo "Starting SlopTotal (log: runs/sloptotal.log)..."
-        (cd "$SLOPTOTAL_DIR" && nohup bash scripts/start.sh >"$OLDPWD/runs/sloptotal.log" 2>&1 &)
-        if ! wait_for http://localhost:8000/health 300; then
-            echo "Error: SlopTotal did not answer within 5 minutes; see runs/sloptotal.log." >&2
-            exit 1
-        fi
-    else
-        echo "Error: SlopTotal is not running on http://localhost:8000 and" >&2
-        echo "$SLOPTOTAL_DIR/scripts/start.sh was not found. Start it, or set SLOPTOTAL_DIR." >&2
-        exit 1
-    fi
-fi
-echo "SlopTotal is up."
 
 # --- TensorBoard: start once, reuse if already running --------------------------
 TB_URL="http://localhost:$TB_PORT/"

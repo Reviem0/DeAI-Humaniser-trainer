@@ -149,27 +149,55 @@ class PassAll:
         return [1.0] * len(sentences)
 
 
-def test_sloptotal_detector_overall_and_engine_subset():
-    import httpx
-    from deai.harness import SlopTotalClient
-    from deai.reward import sloptotal_detector
+class StubEngine:
+    def __init__(self, key, engine_type, value):
+        self.key, self.name, self.engine_type, self.value = key, key, engine_type, value
 
-    def handler(req):
-        if "fail" in req.content.decode():
-            return httpx.Response(500, json={"error": "boom"})
-        return httpx.Response(200, json={"score": 60.0, "engines": [
-            {"engine": "classifier_fakespot", "score": 80.0}, {"engine": "linguistic", "score": 20.0}]})
+    def score(self, text):
+        if "fail" in text:
+            raise RuntimeError("boom")
+        return self.value
 
-    async def go(engines):
-        async with SlopTotalClient(transport=httpx.MockTransport(handler), max_retries=1) as st:
-            reward = Reward(sloptotal_detector(st, "quick", engines), models=PassAll())
-            return await reward.score([SOURCE, SOURCE], [SOURCE, SOURCE + " fail"])
 
-    ok, failed = asyncio.run(go(None))
-    assert ok.detector_score == 60.0 and ok.reward == pytest.approx(0.4)
-    assert failed.reward is None and "HarnessError" in failed.error
-    ok, _ = asyncio.run(go(["classifier_fakespot", "linguistic"]))
+def stub_detectors():
+    from deai.detectors import Detectors
+    return Detectors([StubEngine("classifier_fakespot", "neural", 0.8),
+                      StubEngine("classifier_tmr", "neural", 0.4),
+                      StubEngine("classifier_e5", "embedding", 0.6),
+                      StubEngine("linguistic", "linguistic", 0.2),
+                      StubEngine("formulaic", "linguistic", 0.2),
+                      StubEngine("perplexity", "statistical", 0.1)])
+
+
+def test_local_detector_overall_and_engine_subset():
+    from deai.detectors import calibration
+    from deai.reward import local_detector
+
+    det = stub_detectors()
+
+    def go(engines):
+        reward = Reward(local_detector(det, "quick", engines), models=PassAll())
+        return asyncio.run(reward.score([SOURCE, SOURCE], [SOURCE, SOURCE + " fail"]))
+
+    ok, failed = go(None)
+    expected = calibration.quick_score({"classifier_fakespot": 0.8, "classifier_tmr": 0.4,
+                                        "linguistic": 0.2, "formulaic": 0.2}, SOURCE)[0]
+    assert ok.detector_score == expected and ok.reward == pytest.approx(1 - expected / 100)
+    assert failed.reward is None and "DetectorError" in failed.error
+    ok, _ = go(["classifier_fakespot", "linguistic"])
     assert ok.detector_score == pytest.approx(50.0) and ok.reward == pytest.approx(0.5)
+
+
+def test_family_engines_follow_the_endpoint():
+    from deai.reward import family_engines, make_detector
+
+    det = stub_detectors()
+    # perplexity is analyze-only, so the quick families never include it.
+    assert family_engines(det, "quick", "statistical") == []
+    assert family_engines(det, "analyze", "neural") == ["classifier_e5", "classifier_fakespot", "classifier_tmr"]
+    assert family_engines(det, "analyze", "statistical") == ["perplexity"]
+    scores = asyncio.run(make_detector(det, "stat")([SOURCE]))
+    assert scores == [pytest.approx(10.0)]
 
 
 def test_sentence_splitting_keeps_closing_quotes():

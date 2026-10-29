@@ -1,0 +1,1025 @@
+{
+ "meta": {
+  "source": "SlopTotal app/engines (https://github.com/pablocaeg/sloptotal)",
+  "device": "cuda",
+  "gpt2_device": "cuda:0",
+  "torch": "2.14.1+cu130",
+  "transformers": "5.20.2"
+ },
+ "texts": {
+  "ai-academic-arxiv-0095": {
+   "scores": {
+    "perplexity": 1.0,
+    "cross_perplexity": 0.922,
+    "binoculars": 0.987,
+    "fast_detectgpt": 0.823,
+    "gltr": 0.942,
+    "log_rank": 1.0,
+    "diveye": 0.333,
+    "burstiness": 0.274
+   },
+   "details": {
+    "perplexity": "Perplexity: 10.9 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 10.9 (score 1.00), DistilGPT-2 PP: 25.0 (score 0.90), agreement: 0.90",
+    "binoculars": "CE ratio: 1.348 (observer/performer), PP performer: 10.9, PP observer: 25.0",
+    "fast_detectgpt": "Mean curvature: 0.247 (higher = more AI-like, n=344 tokens)",
+    "gltr": "Top-1: 49%, Top-5: 74%, Top-10: 81%, Top-100: 94% of 344 tokens",
+    "log_rank": "Mean log-rank: 1.13 (lower = more AI-like, n=344 tokens)",
+    "diveye": "Surprisal CV: 0.967, skew: 1.25, kurtosis: 1.48 (mean=2.4, std=2.3, n=344)",
+    "burstiness": "Sentence perplexity CV: 0.622 (mean=14.2, stdev=8.8, n=10 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.3881900310516357,
+   "distil_loss": 3.2186636924743652,
+   "n_tokens": 344,
+   "seconds": 7.447
+  },
+  "ai-classics-gutenberg-0022": {
+   "scores": {
+    "perplexity": 0.403,
+    "cross_perplexity": 0.177,
+    "binoculars": 0.208,
+    "fast_detectgpt": 0.747,
+    "gltr": 0.454,
+    "log_rank": 0.256,
+    "diveye": 0.04,
+    "burstiness": 0.256
+   },
+   "details": {
+    "perplexity": "Perplexity: 34.7 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 34.7 (score 0.40), DistilGPT-2 PP: 72.4 (score 0.00), agreement: 0.60",
+    "binoculars": "CE ratio: 1.207 (observer/performer), PP performer: 34.7, PP observer: 72.4",
+    "fast_detectgpt": "Mean curvature: 0.224 (higher = more AI-like, n=458 tokens)",
+    "gltr": "Top-1: 39%, Top-5: 61%, Top-10: 67%, Top-100: 83% of 458 tokens",
+    "log_rank": "Mean log-rank: 1.94 (lower = more AI-like, n=458 tokens)",
+    "diveye": "Surprisal CV: 0.838, skew: 0.86, kurtosis: 0.13 (mean=3.5, std=3.0, n=458)",
+    "burstiness": "Sentence perplexity CV: 0.634 (mean=39.6, stdev=25.1, n=16 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.546536684036255,
+   "distil_loss": 4.282398223876953,
+   "n_tokens": 458,
+   "seconds": 0.098
+  },
+  "ai-creative-writingprompts-0019": {
+   "scores": {
+    "perplexity": 0.743,
+    "cross_perplexity": 0.548,
+    "binoculars": 0.451,
+    "fast_detectgpt": 0.454,
+    "gltr": 0.514,
+    "log_rank": 0.592,
+    "diveye": 0.055,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 21.8 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 21.8 (score 0.74), DistilGPT-2 PP: 47.2 (score 0.46), agreement: 0.71",
+    "binoculars": "CE ratio: 1.251 (observer/performer), PP performer: 21.8, PP observer: 47.2",
+    "fast_detectgpt": "Mean curvature: 0.136 (higher = more AI-like, n=916 tokens)",
+    "gltr": "Top-1: 40%, Top-5: 64%, Top-10: 72%, Top-100: 91% of 916 tokens",
+    "log_rank": "Mean log-rank: 1.61 (lower = more AI-like, n=916 tokens)",
+    "diveye": "Surprisal CV: 0.879, skew: 1.10, kurtosis: 0.84 (mean=3.1, std=2.7, n=916)",
+    "burstiness": "Sentence perplexity CV: 0.960 (mean=33.6, stdev=32.3, n=40 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.080690383911133,
+   "distil_loss": 3.854691982269287,
+   "n_tokens": 916,
+   "seconds": 0.246
+  },
+  "ai-encyclopedia-wikipedia-0082": {
+   "scores": {
+    "perplexity": 1.0,
+    "cross_perplexity": 1.0,
+    "binoculars": 0.871,
+    "fast_detectgpt": 0.495,
+    "gltr": 1.0,
+    "log_rank": 1.0,
+    "diveye": 0.685,
+    "burstiness": 0.569
+   },
+   "details": {
+    "perplexity": "Perplexity: 7.9 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 7.9 (score 1.00), DistilGPT-2 PP: 15.4 (score 1.00), agreement: 1.00",
+    "binoculars": "CE ratio: 1.327 (observer/performer), PP performer: 7.9, PP observer: 15.4",
+    "fast_detectgpt": "Mean curvature: 0.149 (higher = more AI-like, n=460 tokens)",
+    "gltr": "Top-1: 53%, Top-5: 79%, Top-10: 85%, Top-100: 97% of 460 tokens",
+    "log_rank": "Mean log-rank: 0.96 (lower = more AI-like, n=460 tokens)",
+    "diveye": "Surprisal CV: 1.080, skew: 1.52, kurtosis: 2.66 (mean=2.1, std=2.2, n=460)",
+    "burstiness": "Sentence perplexity CV: 0.430 (mean=8.7, stdev=3.7, n=17 sentences). Flat rhythm \u2014 AI-like"
+   },
+   "gpt2_loss": 2.063119649887085,
+   "distil_loss": 2.737154722213745,
+   "n_tokens": 460,
+   "seconds": 0.145
+  },
+  "ai-essay-college-0052": {
+   "scores": {
+    "perplexity": 0.836,
+    "cross_perplexity": 0.736,
+    "binoculars": 0.309,
+    "fast_detectgpt": 0.798,
+    "gltr": 0.676,
+    "log_rank": 0.721,
+    "diveye": 0.089,
+    "burstiness": 0.424
+   },
+   "details": {
+    "perplexity": "Perplexity: 18.2 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 18.2 (score 0.84), DistilGPT-2 PP: 35.1 (score 0.70), agreement: 0.86",
+    "binoculars": "CE ratio: 1.226 (observer/performer), PP performer: 18.2, PP observer: 35.1",
+    "fast_detectgpt": "Mean curvature: 0.239 (higher = more AI-like, n=848 tokens)",
+    "gltr": "Top-1: 44%, Top-5: 67%, Top-10: 74%, Top-100: 92% of 848 tokens",
+    "log_rank": "Mean log-rank: 1.48 (lower = more AI-like, n=848 tokens)",
+    "diveye": "Surprisal CV: 0.888, skew: 1.01, kurtosis: 0.61 (mean=2.9, std=2.6, n=848)",
+    "burstiness": "Sentence perplexity CV: 0.524 (mean=19.6, stdev=10.3, n=33 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.902326822280884,
+   "distil_loss": 3.5569889545440674,
+   "n_tokens": 848,
+   "seconds": 0.205
+  },
+  "ai-essay-hewlett-0035": {
+   "scores": {
+    "perplexity": 1.0,
+    "cross_perplexity": 0.973,
+    "binoculars": 0.725,
+    "fast_detectgpt": 0.856,
+    "gltr": 0.731,
+    "log_rank": 1.0,
+    "diveye": 0.097,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 10.7 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 10.7 (score 1.00), DistilGPT-2 PP: 21.7 (score 0.97), agreement: 0.97",
+    "binoculars": "CE ratio: 1.301 (observer/performer), PP performer: 10.7, PP observer: 21.7",
+    "fast_detectgpt": "Mean curvature: 0.257 (higher = more AI-like, n=464 tokens)",
+    "gltr": "Top-1: 45%, Top-5: 73%, Top-10: 82%, Top-100: 97% of 464 tokens",
+    "log_rank": "Mean log-rank: 1.13 (lower = more AI-like, n=464 tokens)",
+    "diveye": "Surprisal CV: 0.893, skew: 1.16, kurtosis: 1.39 (mean=2.4, std=2.1, n=464)",
+    "burstiness": "Sentence perplexity CV: 0.863 (mean=15.4, stdev=13.3, n=30 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.367161273956299,
+   "distil_loss": 3.078561305999756,
+   "n_tokens": 464,
+   "seconds": 0.138
+  },
+  "ai-essay-toefl-0036": {
+   "scores": {
+    "perplexity": 1.0,
+    "cross_perplexity": 1.0,
+    "binoculars": 0.792,
+    "fast_detectgpt": 0.782,
+    "gltr": 0.879,
+    "log_rank": 1.0,
+    "diveye": 0.292,
+    "burstiness": 0.488
+   },
+   "details": {
+    "perplexity": "Perplexity: 9.7 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 9.7 (score 1.00), DistilGPT-2 PP: 19.7 (score 1.00), agreement: 1.00",
+    "binoculars": "CE ratio: 1.313 (observer/performer), PP performer: 9.7, PP observer: 19.7",
+    "fast_detectgpt": "Mean curvature: 0.235 (higher = more AI-like, n=103 tokens)",
+    "gltr": "Top-1: 48%, Top-5: 77%, Top-10: 80%, Top-100: 96% of 103 tokens",
+    "log_rank": "Mean log-rank: 1.10 (lower = more AI-like, n=103 tokens)",
+    "diveye": "Surprisal CV: 0.952, skew: 1.13, kurtosis: 0.57 (mean=2.3, std=2.2, n=103)",
+    "burstiness": "Sentence perplexity CV: 0.483 (mean=10.5, stdev=5.1, n=6 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.269691228866577,
+   "distil_loss": 2.9790940284729004,
+   "n_tokens": 103,
+   "seconds": 1.152
+  },
+  "ai-explanation-eli5-0034": {
+   "scores": {
+    "perplexity": 0.65,
+    "cross_perplexity": 0.4,
+    "binoculars": 0.458,
+    "fast_detectgpt": 0.236,
+    "gltr": 0.229,
+    "log_rank": 0.545,
+    "diveye": 0.032,
+    "burstiness": 0.059
+   },
+   "details": {
+    "perplexity": "Perplexity: 25.3 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 25.3 (score 0.65), DistilGPT-2 PP: 57.2 (score 0.26), agreement: 0.61",
+    "binoculars": "CE ratio: 1.252 (observer/performer), PP performer: 25.3, PP observer: 57.2",
+    "fast_detectgpt": "Mean curvature: 0.071 (higher = more AI-like, n=214 tokens)",
+    "gltr": "Top-1: 35%, Top-5: 62%, Top-10: 71%, Top-100: 91% of 214 tokens",
+    "log_rank": "Mean log-rank: 1.66 (lower = more AI-like, n=214 tokens)",
+    "diveye": "Surprisal CV: 0.808, skew: 0.98, kurtosis: 0.60 (mean=3.2, std=2.6, n=214)",
+    "burstiness": "Sentence perplexity CV: 0.761 (mean=28.6, stdev=21.8, n=9 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.2308731079101562,
+   "distil_loss": 4.046294212341309,
+   "n_tokens": 214,
+   "seconds": 0.047
+  },
+  "ai-news-bbc-0021": {
+   "scores": {
+    "perplexity": 0.9,
+    "cross_perplexity": 0.798,
+    "binoculars": 0.466,
+    "fast_detectgpt": 0.444,
+    "gltr": 0.558,
+    "log_rank": 0.783,
+    "diveye": 0.123,
+    "burstiness": 0.577
+   },
+   "details": {
+    "perplexity": "Perplexity: 15.8 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 15.8 (score 0.90), DistilGPT-2 PP: 31.8 (score 0.76), agreement: 0.86",
+    "binoculars": "CE ratio: 1.254 (observer/performer), PP performer: 15.8, PP observer: 31.8",
+    "fast_detectgpt": "Mean curvature: 0.133 (higher = more AI-like, n=707 tokens)",
+    "gltr": "Top-1: 41%, Top-5: 67%, Top-10: 75%, Top-100: 92% of 707 tokens",
+    "log_rank": "Mean log-rank: 1.42 (lower = more AI-like, n=707 tokens)",
+    "diveye": "Surprisal CV: 0.899, skew: 1.03, kurtosis: 0.57 (mean=2.8, std=2.5, n=707)",
+    "burstiness": "Sentence perplexity CV: 0.425 (mean=16.7, stdev=7.1, n=23 sentences). Flat rhythm \u2014 AI-like"
+   },
+   "gpt2_loss": 2.759686231613159,
+   "distil_loss": 3.4605515003204346,
+   "n_tokens": 707,
+   "seconds": 0.169
+  },
+  "ai-news-ccnews-0049": {
+   "scores": {
+    "perplexity": 1.0,
+    "cross_perplexity": 1.0,
+    "binoculars": 0.136,
+    "fast_detectgpt": 0.41,
+    "gltr": 0.976,
+    "log_rank": 1.0,
+    "diveye": 0.579,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 11.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 11.1 (score 1.00), DistilGPT-2 PP: 17.6 (score 1.00), agreement: 1.00",
+    "binoculars": "CE ratio: 1.194 (observer/performer), PP performer: 11.1, PP observer: 17.6",
+    "fast_detectgpt": "Mean curvature: 0.123 (higher = more AI-like, n=523 tokens)",
+    "gltr": "Top-1: 50%, Top-5: 75%, Top-10: 81%, Top-100: 95% of 523 tokens",
+    "log_rank": "Mean log-rank: 1.13 (lower = more AI-like, n=523 tokens)",
+    "diveye": "Surprisal CV: 1.047, skew: 1.71, kurtosis: 4.11 (mean=2.4, std=2.5, n=523)",
+    "burstiness": "Sentence perplexity CV: 0.806 (mean=15.3, stdev=12.3, n=19 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.4031193256378174,
+   "distil_loss": 2.87027645111084,
+   "n_tokens": 523,
+   "seconds": 0.126
+  },
+  "ai-news-wikinews-0065": {
+   "scores": {
+    "perplexity": 0.948,
+    "cross_perplexity": 0.887,
+    "binoculars": 0.408,
+    "fast_detectgpt": 0.42,
+    "gltr": 0.573,
+    "log_rank": 0.899,
+    "diveye": 0.178,
+    "burstiness": 0.418
+   },
+   "details": {
+    "perplexity": "Perplexity: 14.0 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 14.0 (score 0.95), DistilGPT-2 PP: 26.6 (score 0.87), agreement: 0.92",
+    "binoculars": "CE ratio: 1.243 (observer/performer), PP performer: 14.0, PP observer: 26.6",
+    "fast_detectgpt": "Mean curvature: 0.126 (higher = more AI-like, n=661 tokens)",
+    "gltr": "Top-1: 41%, Top-5: 70%, Top-10: 79%, Top-100: 95% of 661 tokens",
+    "log_rank": "Mean log-rank: 1.30 (lower = more AI-like, n=661 tokens)",
+    "diveye": "Surprisal CV: 0.921, skew: 1.31, kurtosis: 2.54 (mean=2.6, std=2.4, n=661)",
+    "burstiness": "Sentence perplexity CV: 0.528 (mean=14.7, stdev=7.8, n=26 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.6377525329589844,
+   "distil_loss": 3.2798376083374023,
+   "n_tokens": 661,
+   "seconds": 0.164
+  },
+  "ai-qa-stackexchange-0053": {
+   "scores": {
+    "perplexity": 0.812,
+    "cross_perplexity": 0.726,
+    "binoculars": 0.205,
+    "fast_detectgpt": 0.474,
+    "gltr": 0.561,
+    "log_rank": 0.665,
+    "diveye": 0.108,
+    "burstiness": 0.07
+   },
+   "details": {
+    "perplexity": "Perplexity: 19.2 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 19.2 (score 0.81), DistilGPT-2 PP: 35.3 (score 0.69), agreement: 0.88",
+    "binoculars": "CE ratio: 1.207 (observer/performer), PP performer: 19.2, PP observer: 35.3",
+    "fast_detectgpt": "Mean curvature: 0.142 (higher = more AI-like, n=798 tokens)",
+    "gltr": "Top-1: 41%, Top-5: 64%, Top-10: 72%, Top-100: 91% of 798 tokens",
+    "log_rank": "Mean log-rank: 1.53 (lower = more AI-like, n=798 tokens)",
+    "diveye": "Surprisal CV: 0.893, skew: 0.96, kurtosis: 0.48 (mean=3.0, std=2.6, n=798)",
+    "burstiness": "Sentence perplexity CV: 0.755 (mean=25.9, stdev=19.6, n=24 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.9529120922088623,
+   "distil_loss": 3.5637433528900146,
+   "n_tokens": 798,
+   "seconds": 0.185
+  },
+  "ai-review-amazon-0097": {
+   "scores": {
+    "perplexity": 0.759,
+    "cross_perplexity": 0.736,
+    "binoculars": 0.0,
+    "fast_detectgpt": 0.255,
+    "gltr": 0.5,
+    "log_rank": 0.666,
+    "diveye": 0.185,
+    "burstiness": 0.179
+   },
+   "details": {
+    "perplexity": "Perplexity: 21.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 21.1 (score 0.76), DistilGPT-2 PP: 33.7 (score 0.73), agreement: 0.97",
+    "binoculars": "CE ratio: 1.152 (observer/performer), PP performer: 21.1, PP observer: 33.7",
+    "fast_detectgpt": "Mean curvature: 0.076 (higher = more AI-like, n=100 tokens)",
+    "gltr": "Top-1: 40%, Top-5: 64%, Top-10: 72%, Top-100: 93% of 100 tokens",
+    "log_rank": "Mean log-rank: 1.53 (lower = more AI-like, n=100 tokens)",
+    "diveye": "Surprisal CV: 0.927, skew: 2.00, kurtosis: 6.86 (mean=3.1, std=2.8, n=100)",
+    "burstiness": "Sentence perplexity CV: 0.684 (mean=21.6, stdev=14.8, n=7 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.051525831222534,
+   "distil_loss": 3.5162932872772217,
+   "n_tokens": 100,
+   "seconds": 0.027
+  },
+  "ai-social-reddit-0067": {
+   "scores": {
+    "perplexity": 0.465,
+    "cross_perplexity": 0.323,
+    "binoculars": 0.005,
+    "fast_detectgpt": 0.515,
+    "gltr": 0.325,
+    "log_rank": 0.298,
+    "diveye": 0.031,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 32.3 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 32.3 (score 0.47), DistilGPT-2 PP: 58.5 (score 0.23), agreement: 0.76",
+    "binoculars": "CE ratio: 1.171 (observer/performer), PP performer: 32.3, PP observer: 58.5",
+    "fast_detectgpt": "Mean curvature: 0.154 (higher = more AI-like, n=611 tokens)",
+    "gltr": "Top-1: 36%, Top-5: 62%, Top-10: 68%, Top-100: 86% of 611 tokens",
+    "log_rank": "Mean log-rank: 1.90 (lower = more AI-like, n=611 tokens)",
+    "diveye": "Surprisal CV: 0.862, skew: 1.00, kurtosis: 0.59 (mean=3.5, std=3.0, n=611)",
+    "burstiness": "Sentence perplexity CV: 0.858 (mean=40.7, stdev=34.9, n=13 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.4756627082824707,
+   "distil_loss": 4.069766044616699,
+   "n_tokens": 611,
+   "seconds": 0.152
+  },
+  "ai-humanized-ai-explanation-eli5-0027": {
+   "scores": {
+    "perplexity": 0.313,
+    "cross_perplexity": 0.142,
+    "binoculars": 0.355,
+    "fast_detectgpt": 0.048,
+    "gltr": 0.0,
+    "log_rank": 0.216,
+    "diveye": 0.053,
+    "burstiness": 0.258
+   },
+   "details": {
+    "perplexity": "Perplexity: 38.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 38.1 (score 0.31), DistilGPT-2 PP: 89.3 (score 0.00), agreement: 0.69",
+    "binoculars": "CE ratio: 1.234 (observer/performer), PP performer: 38.1, PP observer: 89.3",
+    "fast_detectgpt": "Mean curvature: 0.014 (higher = more AI-like, n=184 tokens)",
+    "gltr": "Top-1: 30%, Top-5: 54%, Top-10: 62%, Top-100: 86% of 184 tokens",
+    "log_rank": "Mean log-rank: 1.98 (lower = more AI-like, n=184 tokens)",
+    "diveye": "Surprisal CV: 0.718, skew: 0.65, kurtosis: -0.26 (mean=3.6, std=2.6, n=184)",
+    "burstiness": "Sentence perplexity CV: 0.633 (mean=44.5, stdev=28.2, n=10 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.6403441429138184,
+   "distil_loss": 4.491705894470215,
+   "n_tokens": 184,
+   "seconds": 0.042
+  },
+  "ai-paraphrased-ai-essay-college-0010": {
+   "scores": {
+    "perplexity": 0.63,
+    "cross_perplexity": 0.445,
+    "binoculars": 0.259,
+    "fast_detectgpt": 0.599,
+    "gltr": 0.432,
+    "log_rank": 0.468,
+    "diveye": 0.036,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 26.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 26.1 (score 0.63), DistilGPT-2 PP: 52.8 (score 0.34), agreement: 0.71",
+    "binoculars": "CE ratio: 1.217 (observer/performer), PP performer: 26.1, PP observer: 52.8",
+    "fast_detectgpt": "Mean curvature: 0.180 (higher = more AI-like, n=709 tokens)",
+    "gltr": "Top-1: 39%, Top-5: 61%, Top-10: 68%, Top-100: 89% of 709 tokens",
+    "log_rank": "Mean log-rank: 1.73 (lower = more AI-like, n=709 tokens)",
+    "diveye": "Surprisal CV: 0.839, skew: 0.93, kurtosis: 0.33 (mean=3.3, std=2.7, n=709)",
+    "burstiness": "Sentence perplexity CV: 0.864 (mean=31.5, stdev=27.2, n=36 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.260161876678467,
+   "distil_loss": 3.966489315032959,
+   "n_tokens": 709,
+   "seconds": 0.168
+  },
+  "human-ai-polished-encyclopedia-wikipedia-0091": {
+   "scores": {
+    "perplexity": 0.951,
+    "cross_perplexity": 0.943,
+    "binoculars": 0.122,
+    "fast_detectgpt": 0.406,
+    "gltr": 0.786,
+    "log_rank": 0.897,
+    "diveye": 0.424,
+    "burstiness": 0.328
+   },
+   "details": {
+    "perplexity": "Perplexity: 13.9 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 13.9 (score 0.95), DistilGPT-2 PP: 23.0 (score 0.94), agreement: 0.99",
+    "binoculars": "CE ratio: 1.192 (observer/performer), PP performer: 13.9, PP observer: 23.0",
+    "fast_detectgpt": "Mean curvature: 0.122 (higher = more AI-like, n=525 tokens)",
+    "gltr": "Top-1: 46%, Top-5: 73%, Top-10: 79%, Top-100: 93% of 525 tokens",
+    "log_rank": "Mean log-rank: 1.30 (lower = more AI-like, n=525 tokens)",
+    "diveye": "Surprisal CV: 0.996, skew: 1.32, kurtosis: 1.53 (mean=2.6, std=2.6, n=525)",
+    "burstiness": "Sentence perplexity CV: 0.587 (mean=15.4, stdev=9.0, n=22 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.6299638748168945,
+   "distil_loss": 3.1347763538360596,
+   "n_tokens": 525,
+   "seconds": 0.138
+  },
+  "mixed-continued-news-ccnews-0046": {
+   "scores": {
+    "perplexity": 0.865,
+    "cross_perplexity": 0.816,
+    "binoculars": 0.151,
+    "fast_detectgpt": 0.483,
+    "gltr": 0.617,
+    "log_rank": 0.756,
+    "diveye": 0.261,
+    "burstiness": 0.262
+   },
+   "details": {
+    "perplexity": "Perplexity: 17.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 17.1 (score 0.86), DistilGPT-2 PP: 30.0 (score 0.80), agreement: 0.93",
+    "binoculars": "CE ratio: 1.197 (observer/performer), PP performer: 17.1, PP observer: 30.0",
+    "fast_detectgpt": "Mean curvature: 0.145 (higher = more AI-like, n=626 tokens)",
+    "gltr": "Top-1: 42%, Top-5: 68%, Top-10: 75%, Top-100: 93% of 626 tokens",
+    "log_rank": "Mean log-rank: 1.44 (lower = more AI-like, n=626 tokens)",
+    "diveye": "Surprisal CV: 0.946, skew: 1.28, kurtosis: 1.84 (mean=2.8, std=2.7, n=626)",
+    "burstiness": "Sentence perplexity CV: 0.629 (mean=18.4, stdev=11.6, n=18 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.8411526679992676,
+   "distil_loss": 3.401482582092285,
+   "n_tokens": 626,
+   "seconds": 0.151
+  },
+  "academic-arxiv-0064": {
+   "scores": {
+    "perplexity": 0.462,
+    "cross_perplexity": 0.325,
+    "binoculars": 0.0,
+    "fast_detectgpt": 0.152,
+    "gltr": 0.55,
+    "log_rank": 0.258,
+    "diveye": 0.156,
+    "burstiness": 0.388
+   },
+   "details": {
+    "perplexity": "Perplexity: 32.4 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 32.4 (score 0.46), DistilGPT-2 PP: 58.2 (score 0.24), agreement: 0.77",
+    "binoculars": "CE ratio: 1.168 (observer/performer), PP performer: 32.4, PP observer: 58.2",
+    "fast_detectgpt": "Mean curvature: 0.046 (higher = more AI-like, n=300 tokens)",
+    "gltr": "Top-1: 41%, Top-5: 58%, Top-10: 66%, Top-100: 83% of 300 tokens",
+    "log_rank": "Mean log-rank: 1.94 (lower = more AI-like, n=300 tokens)",
+    "diveye": "Surprisal CV: 0.905, skew: 0.82, kurtosis: -0.16 (mean=3.5, std=3.1, n=300)",
+    "burstiness": "Sentence perplexity CV: 0.548 (mean=37.2, stdev=20.4, n=8 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.4790055751800537,
+   "distil_loss": 4.063976287841797,
+   "n_tokens": 300,
+   "seconds": 0.069
+  },
+  "classics-gutenberg-0071": {
+   "scores": {
+    "perplexity": 0.472,
+    "cross_perplexity": 0.203,
+    "binoculars": 0.685,
+    "fast_detectgpt": 0.598,
+    "gltr": 0.116,
+    "log_rank": 0.369,
+    "diveye": 0.033,
+    "burstiness": 0.502
+   },
+   "details": {
+    "perplexity": "Perplexity: 32.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 32.1 (score 0.47), DistilGPT-2 PP: 88.6 (score 0.00), agreement: 0.53",
+    "binoculars": "CE ratio: 1.293 (observer/performer), PP performer: 32.1, PP observer: 88.6",
+    "fast_detectgpt": "Mean curvature: 0.179 (higher = more AI-like, n=427 tokens)",
+    "gltr": "Top-1: 32%, Top-5: 60%, Top-10: 68%, Top-100: 88% of 427 tokens",
+    "log_rank": "Mean log-rank: 1.83 (lower = more AI-like, n=427 tokens)",
+    "diveye": "Surprisal CV: 0.781, skew: 0.96, kurtosis: 0.36 (mean=3.5, std=2.7, n=427)",
+    "burstiness": "Sentence perplexity CV: 0.474 (mean=33.9, stdev=16.1, n=9 sentences). Flat rhythm \u2014 AI-like"
+   },
+   "gpt2_loss": 3.4673056602478027,
+   "distil_loss": 4.4842753410339355,
+   "n_tokens": 427,
+   "seconds": 0.132
+  },
+  "creative-writingprompts-0037": {
+   "scores": {
+    "perplexity": 0.744,
+    "cross_perplexity": 0.648,
+    "binoculars": 0.14,
+    "fast_detectgpt": 0.661,
+    "gltr": 0.468,
+    "log_rank": 0.623,
+    "diveye": 0.049,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 21.7 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 21.7 (score 0.74), DistilGPT-2 PP: 39.6 (score 0.61), agreement: 0.86",
+    "binoculars": "CE ratio: 1.195 (observer/performer), PP performer: 21.7, PP observer: 39.6",
+    "fast_detectgpt": "Mean curvature: 0.198 (higher = more AI-like, n=757 tokens)",
+    "gltr": "Top-1: 39%, Top-5: 66%, Top-10: 75%, Top-100: 90% of 757 tokens",
+    "log_rank": "Mean log-rank: 1.58 (lower = more AI-like, n=757 tokens)",
+    "diveye": "Surprisal CV: 0.879, skew: 1.16, kurtosis: 0.87 (mean=3.1, std=2.7, n=757)",
+    "burstiness": "Sentence perplexity CV: 0.991 (mean=29.9, stdev=29.6, n=48 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.078406810760498,
+   "distil_loss": 3.679426908493042,
+   "n_tokens": 757,
+   "seconds": 0.199
+  },
+  "encyclopedia-wikipedia-0079": {
+   "scores": {
+    "perplexity": 0.95,
+    "cross_perplexity": 0.94,
+    "binoculars": 0.132,
+    "fast_detectgpt": 0.448,
+    "gltr": 0.808,
+    "log_rank": 0.871,
+    "diveye": 0.476,
+    "burstiness": 0.208
+   },
+   "details": {
+    "perplexity": "Perplexity: 13.9 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 13.9 (score 0.95), DistilGPT-2 PP: 23.1 (score 0.94), agreement: 0.99",
+    "binoculars": "CE ratio: 1.194 (observer/performer), PP performer: 13.9, PP observer: 23.1",
+    "fast_detectgpt": "Mean curvature: 0.134 (higher = more AI-like, n=494 tokens)",
+    "gltr": "Top-1: 46%, Top-5: 70%, Top-10: 78%, Top-100: 93% of 494 tokens",
+    "log_rank": "Mean log-rank: 1.33 (lower = more AI-like, n=494 tokens)",
+    "diveye": "Surprisal CV: 1.015, skew: 1.56, kurtosis: 3.06 (mean=2.6, std=2.7, n=494)",
+    "burstiness": "Sentence perplexity CV: 0.665 (mean=15.8, stdev=10.5, n=17 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.6315577030181885,
+   "distil_loss": 3.1416022777557373,
+   "n_tokens": 494,
+   "seconds": 0.128
+  },
+  "essay-college-0012": {
+   "scores": {
+    "perplexity": 0.85,
+    "cross_perplexity": 0.866,
+    "binoculars": 0.0,
+    "fast_detectgpt": 0.211,
+    "gltr": 0.471,
+    "log_rank": 0.743,
+    "diveye": 0.179,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 17.7 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 17.7 (score 0.85), DistilGPT-2 PP: 24.1 (score 0.92), agreement: 0.93",
+    "binoculars": "CE ratio: 1.107 (observer/performer), PP performer: 17.7, PP observer: 24.1",
+    "fast_detectgpt": "Mean curvature: 0.063 (higher = more AI-like, n=799 tokens)",
+    "gltr": "Top-1: 39%, Top-5: 66%, Top-10: 76%, Top-100: 92% of 799 tokens",
+    "log_rank": "Mean log-rank: 1.46 (lower = more AI-like, n=799 tokens)",
+    "diveye": "Surprisal CV: 0.921, skew: 1.32, kurtosis: 1.90 (mean=2.9, std=2.6, n=799)",
+    "burstiness": "Sentence perplexity CV: 1.639 (mean=27.6, stdev=45.2, n=34 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.874276638031006,
+   "distil_loss": 3.1822493076324463,
+   "n_tokens": 799,
+   "seconds": 0.203
+  },
+  "essay-hewlett-0009": {
+   "scores": {
+    "perplexity": 0.531,
+    "cross_perplexity": 0.422,
+    "binoculars": 0.0,
+    "fast_detectgpt": 0.113,
+    "gltr": 0.155,
+    "log_rank": 0.45,
+    "diveye": 0.023,
+    "burstiness": 0.166
+   },
+   "details": {
+    "perplexity": "Perplexity: 29.8 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 29.8 (score 0.53), DistilGPT-2 PP: 52.1 (score 0.36), agreement: 0.83",
+    "binoculars": "CE ratio: 1.164 (observer/performer), PP performer: 29.8, PP observer: 52.1",
+    "fast_detectgpt": "Mean curvature: 0.034 (higher = more AI-like, n=293 tokens)",
+    "gltr": "Top-1: 33%, Top-5: 62%, Top-10: 69%, Top-100: 90% of 293 tokens",
+    "log_rank": "Mean log-rank: 1.75 (lower = more AI-like, n=293 tokens)",
+    "diveye": "Surprisal CV: 0.824, skew: 1.14, kurtosis: 1.65 (mean=3.4, std=2.8, n=293)",
+    "burstiness": "Sentence perplexity CV: 0.692 (mean=33.5, stdev=23.2, n=12 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.395251750946045,
+   "distil_loss": 3.9524283409118652,
+   "n_tokens": 293,
+   "seconds": 0.07
+  },
+  "essay-toefl-0087": {
+   "scores": {
+    "perplexity": 0.662,
+    "cross_perplexity": 0.656,
+    "binoculars": 0.0,
+    "fast_detectgpt": 0.371,
+    "gltr": 0.196,
+    "log_rank": 0.596,
+    "diveye": 0.042,
+    "burstiness": 0.384
+   },
+   "details": {
+    "perplexity": "Perplexity: 24.8 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 24.8 (score 0.66), DistilGPT-2 PP: 37.4 (score 0.65), agreement: 0.99",
+    "binoculars": "CE ratio: 1.127 (observer/performer), PP performer: 24.8, PP observer: 37.4",
+    "fast_detectgpt": "Mean curvature: 0.111 (higher = more AI-like, n=112 tokens)",
+    "gltr": "Top-1: 34%, Top-5: 65%, Top-10: 77%, Top-100: 88% of 112 tokens",
+    "log_rank": "Mean log-rank: 1.60 (lower = more AI-like, n=112 tokens)",
+    "diveye": "Surprisal CV: 0.776, skew: 0.83, kurtosis: -0.12 (mean=3.2, std=2.5, n=112)",
+    "burstiness": "Sentence perplexity CV: 0.551 (mean=26.6, stdev=14.6, n=6 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.2121005058288574,
+   "distil_loss": 3.6208138465881348,
+   "n_tokens": 112,
+   "seconds": 0.076
+  },
+  "explanation-eli5-0084": {
+   "scores": {
+    "perplexity": 0.335,
+    "cross_perplexity": 0.151,
+    "binoculars": 0.206,
+    "fast_detectgpt": 0.0,
+    "gltr": 0.0,
+    "log_rank": 0.211,
+    "diveye": 0.041,
+    "burstiness": 0.072
+   },
+   "details": {
+    "perplexity": "Perplexity: 37.3 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 37.3 (score 0.34), DistilGPT-2 PP: 78.8 (score 0.00), agreement: 0.66",
+    "binoculars": "CE ratio: 1.207 (observer/performer), PP performer: 37.3, PP observer: 78.8",
+    "fast_detectgpt": "Mean curvature: -0.011 (higher = more AI-like, n=209 tokens)",
+    "gltr": "Top-1: 30%, Top-5: 55%, Top-10: 67%, Top-100: 87% of 209 tokens",
+    "log_rank": "Mean log-rank: 1.99 (lower = more AI-like, n=209 tokens)",
+    "diveye": "Surprisal CV: 0.784, skew: 0.85, kurtosis: 0.29 (mean=3.6, std=2.8, n=209)",
+    "burstiness": "Sentence perplexity CV: 0.753 (mean=44.7, stdev=33.7, n=5 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.6180272102355957,
+   "distil_loss": 4.367027282714844,
+   "n_tokens": 209,
+   "seconds": 0.065
+  },
+  "mixed-toefl-polished-0060": {
+   "scores": {
+    "perplexity": 1.0,
+    "cross_perplexity": 1.0,
+    "binoculars": 0.028,
+    "fast_detectgpt": 0.435,
+    "gltr": 1.0,
+    "log_rank": 1.0,
+    "diveye": 0.386,
+    "burstiness": 0.168
+   },
+   "details": {
+    "perplexity": "Perplexity: 11.6 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 11.6 (score 1.00), DistilGPT-2 PP: 17.9 (score 1.00), agreement: 1.00",
+    "binoculars": "CE ratio: 1.175 (observer/performer), PP performer: 11.6, PP observer: 17.9",
+    "fast_detectgpt": "Mean curvature: 0.131 (higher = more AI-like, n=110 tokens)",
+    "gltr": "Top-1: 51%, Top-5: 73%, Top-10: 78%, Top-100: 95% of 110 tokens",
+    "log_rank": "Mean log-rank: 1.17 (lower = more AI-like, n=110 tokens)",
+    "diveye": "Surprisal CV: 0.982, skew: 1.16, kurtosis: 0.73 (mean=2.5, std=2.4, n=110)",
+    "burstiness": "Sentence perplexity CV: 0.691 (mean=19.1, stdev=13.2, n=5 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.453448534011841,
+   "distil_loss": 2.883089542388916,
+   "n_tokens": 110,
+   "seconds": 0.041
+  },
+  "news-bbc-0035": {
+   "scores": {
+    "perplexity": 1.0,
+    "cross_perplexity": 0.945,
+    "binoculars": 0.775,
+    "fast_detectgpt": 0.688,
+    "gltr": 0.847,
+    "log_rank": 1.0,
+    "diveye": 0.35,
+    "burstiness": 0.63
+   },
+   "details": {
+    "perplexity": "Perplexity: 11.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 11.1 (score 1.00), DistilGPT-2 PP: 23.5 (score 0.93), agreement: 0.93",
+    "binoculars": "CE ratio: 1.309 (observer/performer), PP performer: 11.1, PP observer: 23.5",
+    "fast_detectgpt": "Mean curvature: 0.206 (higher = more AI-like, n=720 tokens)",
+    "gltr": "Top-1: 47%, Top-5: 73%, Top-10: 82%, Top-100: 95% of 720 tokens",
+    "log_rank": "Mean log-rank: 1.18 (lower = more AI-like, n=720 tokens)",
+    "diveye": "Surprisal CV: 0.974, skew: 1.33, kurtosis: 2.12 (mean=2.4, std=2.3, n=720)",
+    "burstiness": "Sentence perplexity CV: 0.390 (mean=12.4, stdev=4.9, n=20 sentences). Flat rhythm \u2014 AI-like"
+   },
+   "gpt2_loss": 2.4108917713165283,
+   "distil_loss": 3.157045602798462,
+   "n_tokens": 720,
+   "seconds": 0.176
+  },
+  "news-ccnews-0012": {
+   "scores": {
+    "perplexity": 0.85,
+    "cross_perplexity": 0.853,
+    "binoculars": 0.0,
+    "fast_detectgpt": 0.216,
+    "gltr": 0.586,
+    "log_rank": 0.768,
+    "diveye": 0.187,
+    "burstiness": 0.194
+   },
+   "details": {
+    "perplexity": "Perplexity: 17.7 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 17.7 (score 0.85), DistilGPT-2 PP: 26.9 (score 0.86), agreement: 0.99",
+    "binoculars": "CE ratio: 1.146 (observer/performer), PP performer: 17.7, PP observer: 26.9",
+    "fast_detectgpt": "Mean curvature: 0.065 (higher = more AI-like, n=767 tokens)",
+    "gltr": "Top-1: 42%, Top-5: 68%, Top-10: 76%, Top-100: 93% of 767 tokens",
+    "log_rank": "Mean log-rank: 1.43 (lower = more AI-like, n=767 tokens)",
+    "diveye": "Surprisal CV: 0.922, skew: 1.21, kurtosis: 1.13 (mean=2.9, std=2.6, n=767)",
+    "burstiness": "Sentence perplexity CV: 0.674 (mean=20.7, stdev=13.9, n=21 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.873793840408325,
+   "distil_loss": 3.2921996116638184,
+   "n_tokens": 767,
+   "seconds": 0.184
+  },
+  "news-wikinews-0045": {
+   "scores": {
+    "perplexity": 0.889,
+    "cross_perplexity": 0.789,
+    "binoculars": 0.428,
+    "fast_detectgpt": 0.285,
+    "gltr": 0.683,
+    "log_rank": 0.806,
+    "diveye": 0.222,
+    "burstiness": 0.48
+   },
+   "details": {
+    "perplexity": "Perplexity: 16.2 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 16.2 (score 0.89), DistilGPT-2 PP: 32.3 (score 0.75), agreement: 0.87",
+    "binoculars": "CE ratio: 1.247 (observer/performer), PP performer: 16.2, PP observer: 32.3",
+    "fast_detectgpt": "Mean curvature: 0.086 (higher = more AI-like, n=449 tokens)",
+    "gltr": "Top-1: 44%, Top-5: 69%, Top-10: 74%, Top-100: 93% of 449 tokens",
+    "log_rank": "Mean log-rank: 1.39 (lower = more AI-like, n=449 tokens)",
+    "diveye": "Surprisal CV: 0.930, skew: 1.06, kurtosis: 0.74 (mean=2.8, std=2.6, n=449)",
+    "burstiness": "Sentence perplexity CV: 0.488 (mean=17.3, stdev=8.5, n=15 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.785468339920044,
+   "distil_loss": 3.473696708679199,
+   "n_tokens": 449,
+   "seconds": 0.137
+  },
+  "qa-stackexchange-0111": {
+   "scores": {
+    "perplexity": 0.808,
+    "cross_perplexity": 0.742,
+    "binoculars": 0.127,
+    "fast_detectgpt": 0.473,
+    "gltr": 0.704,
+    "log_rank": 0.655,
+    "diveye": 0.262,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 19.3 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 19.3 (score 0.81), DistilGPT-2 PP: 34.1 (score 0.72), agreement: 0.91",
+    "binoculars": "CE ratio: 1.193 (observer/performer), PP performer: 19.3, PP observer: 34.1",
+    "fast_detectgpt": "Mean curvature: 0.142 (higher = more AI-like, n=853 tokens)",
+    "gltr": "Top-1: 44%, Top-5: 65%, Top-10: 72%, Top-100: 91% of 853 tokens",
+    "log_rank": "Mean log-rank: 1.54 (lower = more AI-like, n=853 tokens)",
+    "diveye": "Surprisal CV: 0.942, skew: 1.08, kurtosis: 0.83 (mean=3.0, std=2.8, n=853)",
+    "burstiness": "Sentence perplexity CV: 0.865 (mean=21.9, stdev=18.9, n=23 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.9596962928771973,
+   "distil_loss": 3.5305652618408203,
+   "n_tokens": 853,
+   "seconds": 0.212
+  },
+  "review-amazon-0080": {
+   "scores": {
+    "perplexity": 0.947,
+    "cross_perplexity": 0.904,
+    "binoculars": 0.313,
+    "fast_detectgpt": 0.682,
+    "gltr": 0.34,
+    "log_rank": 0.98,
+    "diveye": 0.045,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 14.0 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 14.0 (score 0.95), DistilGPT-2 PP: 25.4 (score 0.89), agreement: 0.94",
+    "binoculars": "CE ratio: 1.226 (observer/performer), PP performer: 14.0, PP observer: 25.4",
+    "fast_detectgpt": "Mean curvature: 0.205 (higher = more AI-like, n=125 tokens)",
+    "gltr": "Top-1: 37%, Top-5: 70%, Top-10: 81%, Top-100: 98% of 125 tokens",
+    "log_rank": "Mean log-rank: 1.22 (lower = more AI-like, n=125 tokens)",
+    "diveye": "Surprisal CV: 0.771, skew: 0.78, kurtosis: 0.20 (mean=2.6, std=2.0, n=125)",
+    "burstiness": "Not enough sentences for burstiness analysis."
+   },
+   "gpt2_loss": 2.6392455101013184,
+   "distil_loss": 3.2367115020751953,
+   "n_tokens": 125,
+   "seconds": 0.033
+  },
+  "social-reddit-0052": {
+   "scores": {
+    "perplexity": 0.755,
+    "cross_perplexity": 0.637,
+    "binoculars": 0.228,
+    "fast_detectgpt": 0.26,
+    "gltr": 0.434,
+    "log_rank": 0.578,
+    "diveye": 0.039,
+    "burstiness": 0.446
+   },
+   "details": {
+    "perplexity": "Perplexity: 21.3 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 21.3 (score 0.75), DistilGPT-2 PP: 40.7 (score 0.59), agreement: 0.83",
+    "binoculars": "CE ratio: 1.211 (observer/performer), PP performer: 21.3, PP observer: 40.7",
+    "fast_detectgpt": "Mean curvature: 0.078 (higher = more AI-like, n=243 tokens)",
+    "gltr": "Top-1: 39%, Top-5: 62%, Top-10: 69%, Top-100: 91% of 243 tokens",
+    "log_rank": "Mean log-rank: 1.62 (lower = more AI-like, n=243 tokens)",
+    "diveye": "Surprisal CV: 0.868, skew: 0.88, kurtosis: 0.11 (mean=3.1, std=2.7, n=243)",
+    "burstiness": "Sentence perplexity CV: 0.510 (mean=24.5, stdev=12.5, n=11 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.0598795413970947,
+   "distil_loss": 3.705395221710205,
+   "n_tokens": 243,
+   "seconds": 0.056
+  },
+  "ai-news-wikinews-0017": {
+   "scores": {
+    "perplexity": 0.313,
+    "cross_perplexity": 0.142,
+    "binoculars": 0.225,
+    "fast_detectgpt": 0.0,
+    "gltr": 0.357,
+    "log_rank": 0.202,
+    "diveye": 0.08,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 38.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 38.1 (score 0.31), DistilGPT-2 PP: 82.0 (score 0.00), agreement: 0.69",
+    "binoculars": "CE ratio: 1.210 (observer/performer), PP performer: 38.1, PP observer: 82.0",
+    "fast_detectgpt": "Mean curvature: -0.153 (higher = more AI-like, n=1023 tokens)",
+    "gltr": "Top-1: 37%, Top-5: 55%, Top-10: 64%, Top-100: 85% of 1023 tokens",
+    "log_rank": "Mean log-rank: 2.00 (lower = more AI-like, n=1023 tokens)",
+    "diveye": "Surprisal CV: 0.881, skew: 0.79, kurtosis: -0.06 (mean=3.6, std=3.2, n=1023)",
+    "burstiness": "Sentence perplexity CV: 0.804 (mean=34.1, stdev=27.5, n=27 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.6403191089630127,
+   "distil_loss": 4.406396389007568,
+   "n_tokens": 1023,
+   "seconds": 0.283
+  },
+  "mixed-continued-news-wikinews-0076": {
+   "scores": {
+    "perplexity": 0.974,
+    "cross_perplexity": 0.923,
+    "binoculars": 0.442,
+    "fast_detectgpt": 0.422,
+    "gltr": 0.924,
+    "log_rank": 0.936,
+    "diveye": 0.444,
+    "burstiness": 0.31
+   },
+   "details": {
+    "perplexity": "Perplexity: 13.0 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 13.0 (score 0.97), DistilGPT-2 PP: 24.6 (score 0.91), agreement: 0.93",
+    "binoculars": "CE ratio: 1.250 (observer/performer), PP performer: 13.0, PP observer: 24.6",
+    "fast_detectgpt": "Mean curvature: 0.127 (higher = more AI-like, n=1023 tokens)",
+    "gltr": "Top-1: 48%, Top-5: 71%, Top-10: 78%, Top-100: 93% of 1023 tokens",
+    "log_rank": "Mean log-rank: 1.26 (lower = more AI-like, n=1023 tokens)",
+    "diveye": "Surprisal CV: 1.002, skew: 1.28, kurtosis: 1.58 (mean=2.6, std=2.6, n=1023)",
+    "burstiness": "Sentence perplexity CV: 0.598 (mean=16.2, stdev=9.7, n=30 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.562940835952759,
+   "distil_loss": 3.2025156021118164,
+   "n_tokens": 1023,
+   "seconds": 0.247
+  },
+  "concat-long": {
+   "scores": {
+    "perplexity": 0.313,
+    "cross_perplexity": 0.142,
+    "binoculars": 0.225,
+    "fast_detectgpt": 0.0,
+    "gltr": 0.357,
+    "log_rank": 0.202,
+    "diveye": 0.08,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 38.1 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 38.1 (score 0.31), DistilGPT-2 PP: 82.0 (score 0.00), agreement: 0.69",
+    "binoculars": "CE ratio: 1.210 (observer/performer), PP performer: 38.1, PP observer: 82.0",
+    "fast_detectgpt": "Mean curvature: -0.153 (higher = more AI-like, n=1023 tokens)",
+    "gltr": "Top-1: 37%, Top-5: 55%, Top-10: 64%, Top-100: 85% of 1023 tokens",
+    "log_rank": "Mean log-rank: 2.00 (lower = more AI-like, n=1023 tokens)",
+    "diveye": "Surprisal CV: 0.881, skew: 0.79, kurtosis: -0.06 (mean=3.6, std=3.2, n=1023)",
+    "burstiness": "Sentence perplexity CV: 0.804 (mean=34.1, stdev=27.5, n=27 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 3.6403191089630127,
+   "distil_loss": 4.406396389007568,
+   "n_tokens": 1023,
+   "seconds": 0.286
+  },
+  "short-60": {
+   "scores": {
+    "perplexity": 0.605,
+    "cross_perplexity": 0.248,
+    "binoculars": 0.862,
+    "fast_detectgpt": 0.542,
+    "gltr": 0.0,
+    "log_rank": 0.41,
+    "diveye": 0.052,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 27.0 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 27.0 (score 0.61), DistilGPT-2 PP: 78.9 (score 0.00), agreement: 0.39",
+    "binoculars": "CE ratio: 1.325 (observer/performer), PP performer: 27.0, PP observer: 78.9",
+    "fast_detectgpt": "Mean curvature: 0.163 (higher = more AI-like, n=11 tokens)",
+    "gltr": "Top-1: 27%, Top-5: 55%, Top-10: 73%, Top-100: 91% of 11 tokens",
+    "log_rank": "Mean log-rank: 1.79 (lower = more AI-like, n=11 tokens)",
+    "diveye": "Surprisal CV: 0.707, skew: 0.66, kurtosis: -0.55 (mean=3.3, std=2.3, n=11)",
+    "burstiness": "Text too short for burstiness analysis."
+   },
+   "gpt2_loss": 3.2959206104278564,
+   "distil_loss": 4.367853164672852,
+   "n_tokens": 11,
+   "seconds": 5.726
+  },
+  "spanish": {
+   "scores": {
+    "perplexity": 0.52,
+    "cross_perplexity": 0.243,
+    "binoculars": 0.369,
+    "fast_detectgpt": 0.374,
+    "gltr": 0.397,
+    "log_rank": 0.261,
+    "diveye": 0.041,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 30.2 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 30.2 (score 0.52), DistilGPT-2 PP: 67.7 (score 0.05), agreement: 0.53",
+    "binoculars": "CE ratio: 1.236 (observer/performer), PP performer: 30.2, PP observer: 67.7",
+    "fast_detectgpt": "Mean curvature: 0.112 (higher = more AI-like, n=87 tokens)",
+    "gltr": "Top-1: 38%, Top-5: 53%, Top-10: 61%, Top-100: 87% of 87 tokens",
+    "log_rank": "Mean log-rank: 1.94 (lower = more AI-like, n=87 tokens)",
+    "diveye": "Surprisal CV: 0.841, skew: 0.85, kurtosis: 0.81 (mean=3.4, std=2.9, n=87)",
+    "burstiness": "Not enough sentences for burstiness analysis."
+   },
+   "gpt2_loss": 3.409222364425659,
+   "distil_loss": 4.215392589569092,
+   "n_tokens": 87,
+   "seconds": 0.023
+  },
+  "markdown": {
+   "scores": {
+    "perplexity": 0.894,
+    "cross_perplexity": 0.917,
+    "binoculars": 0.0,
+    "fast_detectgpt": 0.0,
+    "gltr": 0.824,
+    "log_rank": 0.852,
+    "diveye": 0.471,
+    "burstiness": 0.0
+   },
+   "details": {
+    "perplexity": "Perplexity: 16.0 (lower = more likely AI-generated)",
+    "cross_perplexity": "GPT-2 Medium PP: 16.0 (score 0.89), DistilGPT-2 PP: 19.2 (score 1.00), agreement: 0.89",
+    "binoculars": "CE ratio: 1.065 (observer/performer), PP performer: 16.0, PP observer: 19.2",
+    "fast_detectgpt": "Mean curvature: -0.360 (higher = more AI-like, n=71 tokens)",
+    "gltr": "Top-1: 46%, Top-5: 72%, Top-10: 79%, Top-100: 90% of 71 tokens",
+    "log_rank": "Mean log-rank: 1.35 (lower = more AI-like, n=71 tokens)",
+    "diveye": "Surprisal CV: 1.011, skew: 1.35, kurtosis: 1.31 (mean=2.8, std=2.8, n=71)",
+    "burstiness": "Sentence perplexity CV: 1.110 (mean=20.6, stdev=22.8, n=5 sentences). Natural variation \u2014 human-like"
+   },
+   "gpt2_loss": 2.773616313934326,
+   "distil_loss": 2.9537765979766846,
+   "n_tokens": 71,
+   "seconds": 0.021
+  }
+ }
+}

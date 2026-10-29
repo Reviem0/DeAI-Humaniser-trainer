@@ -95,6 +95,42 @@ def test_tensorboard_round_logging_is_written_once(tmp_path):
     assert live["round_1/detector_mean_passing"][0] == (16, 40.0)
 
 
+def test_stage_train_saves_adapter_after_callbacks_close(tmp_path, monkeypatch):
+    # TensorBoardCallback.on_train_end closes its writer and sets tb_writer to None; code after
+    # train() that touched it crashed before save_pretrained and lost a 4 h DPO epoch.
+    import torch
+    import trl
+    from deai import train_dpo
+    from deai.tblog import RunLog
+
+    saved = []
+
+    class FakeTrainer:
+        def __init__(self, model, args, callbacks, **kw):
+            self.callbacks, self.state = callbacks, SimpleNamespace(log_history=[{"loss": 0.69}])
+            self.model = SimpleNamespace(save_pretrained=saved.append)
+
+        def train(self):
+            for cb in self.callbacks:
+                cb.on_train_end(None, self.state, None)
+
+    monkeypatch.setattr(trl, "DPOTrainer", FakeTrainer)
+    monkeypatch.setattr(trl, "DPOConfig", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(policy, "load_tokenizer", lambda base: None)
+    monkeypatch.setattr(policy, "load_policy", lambda base, adapters: None)
+    monkeypatch.setattr(policy, "release_gpu", lambda: None)
+    monkeypatch.setattr(torch.cuda, "reset_peak_memory_stats", lambda: None)
+    write_jsonl(tmp_path / "round_1" / "pairs.jsonl", [{"prompt": policy.messages("s"), "chosen": [{"role": "assistant", "content": "a"}],
+                                                        "rejected": [{"role": "assistant", "content": "b"}]}])
+    args = SimpleNamespace(base="m", batch_size=1, effective_batch=16, lr=2e-5, beta=0.1, loss_type="sigmoid",
+                           sft_weight=0.2, max_length=2048, lora_r=16)
+    tb = RunLog(tmp_path)
+    train_dpo.stage_train(args, tmp_path, 1, tb)
+    tb.close()
+    assert saved == [str(tmp_path / "round_1" / "adapter")]
+    assert (tmp_path / "round_1" / "train_log.json").exists()
+
+
 def test_max_new_tokens_covers_the_length_gate():
     src = "word " * 500
     assert policy.max_new_tokens(src) >= 500 * 1.2 * 1.3

@@ -4,14 +4,14 @@ A research project on how well AI-text detectors hold up against a rewriter that
 
 ## What this project is
 
-We train a small language model to rewrite AI-written text so that the detectors in [SlopTotal](#sloptotal-the-detector-server) score it as human. The rewrite has to keep the meaning and stay fluent. We then use the trained rewriter to study two questions:
+We train a small language model to rewrite AI-written text so that the detectors ported from [SlopTotal](#the-detectors) score it as human. The rewrite has to keep the meaning and stay fluent. We then use the trained rewriter to study two questions:
 
 1. **Transfer:** when the rewriter is optimized against one family of detectors (neural classifiers, statistical/perplexity-based, or heuristic), does it also evade the other families?
 2. **Defense:** how much does adversarial retraining (in the style of RADAR) make the detectors more robust?
 
 The study is the contribution. Trained humanizers already exist (DIPPER, RADAR, Nicks et al. 2024, AuthorMist), so this is not meant to be another one.
 
-> **Status:** These are in: the harness client, the data and baseline scores, the reward, and both trainers. The trainers have been smoke-tested, and the zero-shot baseline has been evaluated. The full training runs haven't been done yet. The evaluation and defense code isn't written yet.
+> **Status:** These are in: the in-process detectors, the data and baseline scores, the reward, and both trainers. The trainers have been smoke-tested, and the zero-shot baseline has been evaluated. The full training runs haven't been done yet. The evaluation and defense code isn't written yet.
 
 ## How it works
 
@@ -22,7 +22,7 @@ The study is the contribution. Trained humanizers already exist (DIPPER, RADAR, 
                         quality gates: unicode → length → meaning → fluency → NLI
                                               │ (fail any = reward 0)
                                               ▼
-                        SlopTotal detector score (0–100) via HTTP
+                        detector score (0–100), in-process
                                               │
                                               ▼
                         reward = (1 − detector/100) × similarity
@@ -33,13 +33,13 @@ The study is the contribution. Trained humanizers already exist (DIPPER, RADAR, 
 
 | Component | What it does | Code |
 |---|---|---|
-| Harness | Async client for SlopTotal's `quick-score` and `analyze` endpoints, with queue polling, retries and a concurrency limit. A script measures throughput. | [deai/harness.py](deai/harness.py), [scripts/check_harness.py](scripts/check_harness.py) |
-| Data | Passages from SlopTotal's SlopBench corpus: AI passages from several generators and genres, each paired with a human passage written from the same seed. Split into train/val/test by topic group, with one generator held out for test only. Every passage is scored once to give the "before" table. | [deai/data.py](deai/data.py), [scripts/build_data.py](scripts/build_data.py), [scripts/score_baseline.py](scripts/score_baseline.py) |
+| Detectors | In-process ports of SlopTotal's 23 engines and its `quick` and `analyze` overall scores. A script checks separation and measures throughput. | [deai/detectors/](deai/detectors/__init__.py), [scripts/check_detectors.py](scripts/check_detectors.py) |
+| Data | Passages from the SlopBench corpus (shipped with SlopTotal): AI passages from several generators and genres, each paired with a human passage written from the same seed. Split into train/val/test by topic group, with one generator held out for test only. Every passage is scored once to give the "before" table. | [deai/data.py](deai/data.py), [scripts/build_data.py](scripts/build_data.py), [scripts/score_baseline.py](scripts/score_baseline.py) |
 | Reward | Quality gates, then detector score × semantic similarity. | [deai/reward.py](deai/reward.py), [scripts/calibrate_reward.py](scripts/calibrate_reward.py) |
 | Best-of-N + DPO | Each round samples N = 8 rewrites per training source, scores them, pairs the best with the worst, and trains a fresh LoRA adapter with one epoch of DPO. Then it evaluates on val. | [deai/train_dpo.py](deai/train_dpo.py), [deai/policy.py](deai/policy.py), [deai/rollout.py](deai/rollout.py) |
 | GRPO | TRL `GRPOTrainer` with the same reward. It can start from a DPO-trained policy. | [deai/train_grpo.py](deai/train_grpo.py) |
 | Evaluation *(not written yet)* | Evasion rate, TPR at 1% FPR, the train-family × eval-family transfer matrix, quality metrics, baselines | — |
-| Defense *(not written yet)* | Retrain SlopTotal classifiers on the rewrites and measure how much robustness each round adds | — |
+| Defense *(not written yet)* | Retrain the classifiers on the rewrites and measure how much robustness each round adds | — |
 
 ### The rewriter
 
@@ -55,7 +55,7 @@ A rewrite gets **zero reward** if it fails any of these checks, so the model can
 - **Fluency:** mean per-sentence CoLA acceptability ≥ 0.70, the 2nd percentile of human passages. Perplexity is deliberately not used, because low perplexity is what statistical detectors flag.
 - **NLI:** two-way, per-sentence entailment: ≥ 90% of sentences entailed in each direction. This catches dropped or flipped facts. It runs during training too (`--no-train-nli` turns it off).
 
-If the detector server fails, the reward is `None` rather than 0, so the trainer skips that sample instead of learning from it.
+If a detector engine fails, the reward is `None` rather than 0, so the trainer skips that sample instead of learning from it.
 
 ### Reward sources
 
@@ -63,35 +63,43 @@ Each training run optimizes against one detector family (`--reward`):
 
 | `--reward` | Detector score used |
 |---|---|
-| `quick` | `quick-score` overall (mostly Fakespot) |
-| `neural-quick` | mean of the 4 neural engines that quick-score already runs (a cheap stand-in for `neural`) |
+| `quick` | `quick` overall (mostly Fakespot) |
+| `neural-quick` | mean of the 4 neural engines that `quick` already runs (a cheap stand-in for `neural`) |
 | `neural` | mean of the neural / classifier / embedding engines from `analyze` |
 | `stat` | mean of the statistical engines (Binoculars, Fast-DetectGPT, …) |
 | `full` | `analyze` overall score (expensive) |
 
 Comparing these runs against all engine families is the transfer study.
 
-## SlopTotal: the detector server
+## The detectors
 
-The detectors come from a local SlopTotal install, which runs as a FastAPI server on `http://localhost:8000`. Start it with `scripts\start.bat` (or `scripts/start.sh`) in the SlopTotal folder. This project expects SlopTotal at `D:\AI\sloptotal`, and reads the SlopBench corpus from `D:\AI\sloptotal\tests\eval\slopbench\corpus`.
+The 23 detector engines and their calibration come from [SlopTotal](https://github.com/pablocaeg/sloptotal) (MIT). [deai/detectors/](deai/detectors/__init__.py) ports them to run in-process, so no server is needed: `base` (engine interface, device), `neural` (9 classifiers), `statistical` (GPT-2-based: Binoculars, Fast-DetectGPT, perplexity, GLTR, …), `heuristic`, `language` and `calibration`. Tests check them against SlopTotal's own code on shared texts: overall scores match exactly, engine scores within 0.001.
 
 | Endpoint | Used for |
 |---|---|
-| `POST /api/quick-score` | Cheap training reward (6 engines; mostly Fakespot), ~2 texts/s on CPU |
-| `POST /api/analyze` | Evaluation (all 23 engines with per-engine scores), ~0.3 texts/s on CPU |
-| `POST /api/paragraph-score` | Failure analysis |
-| `GET /api/queue/ticket/{id}` | Polling when a request comes back `202 queued` |
+| `quick` | Cheap training reward (6 engines, 4 with non-zero weight; mostly Fakespot) |
+| `analyze` | Evaluation (all 23 engines with per-engine scores) |
 
-Inputs must be at least 50 characters. Engines with zero weight in the overall score (GLTR, log-rank, perplexity, DiveEye, …) still report their own scores, so they serve as held-out detectors for measuring transfer.
+```python
+from deai.detectors import Detectors
+det = Detectors()
+det.score(text, "quick").overall                                   # 0–100
+det.score_many(texts, "analyze", engines=det.endpoint_engines("analyze"))
+```
+
+Only the engines a request needs are loaded and run. Models run in fp32: the 9 classifiers take about 6.7 GB of GPU memory and gpt2-medium/distilgpt2 about 1.7 GB if all 23 engines load; the `quick` reward needs only 4. Set `DEAI_DETECTOR_DEVICE=cpu` to keep them off the GPU. Inputs must be at least 50 characters. Engines with zero weight in the overall score (GLTR, log-rank, perplexity, DiveEye, …) still report their own scores, so they serve as held-out detectors for measuring transfer.
+
+One deliberate difference from SlopTotal: a failing engine raises (`DetectorError`), so the reward becomes `None` and the sample is skipped, where SlopTotal would score it 0.5 (quick) or 0.0 (analyze) and carry on.
+
+The SlopBench corpus is fetched into `data/slopbench` at a pinned SlopTotal commit by `scripts/fetch_slopbench.py` (override the location with `DEAI_SLOPBENCH`).
 
 ## How to run
 
 ### 1. Requirements
 
-- A CUDA GPU. Development uses one RTX 5070 Ti (16 GB) shared with SlopTotal: about 3–5 GB for the detectors and about 11 GB for training.
-- Python **3.12**, in a venv separate from SlopTotal's 3.14 one.
+- A CUDA GPU. Development uses one RTX 5070 Ti (16 GB): about 11 GB for training, plus the detectors (see above; the trainer frees them before each DPO step).
+- Python **3.12**.
 - PyTorch built for CUDA 12.8 or newer (needed for Blackwell GPUs).
-- A working SlopTotal install (see above).
 
 ### 2. Install
 
@@ -102,14 +110,13 @@ pip install torch --index-url https://download.pytorch.org/whl/cu128
 pip install -e .[dev]
 ```
 
-If GPU memory runs short, start SlopTotal with `SLOPTOTAL_DEVICE=cpu`.
+If GPU memory runs short, set `DEAI_DETECTOR_DEVICE=cpu`.
 
-### 3. Check the harness
-
-With SlopTotal running, score known-human and known-AI passages and measure throughput:
+### 3. Fetch SlopBench and check the detectors
 
 ```powershell
-.venv\Scripts\python scripts\check_harness.py
+.venv\Scripts\python scripts\fetch_slopbench.py     # -> data/slopbench
+.venv\Scripts\python scripts\check_detectors.py     # separation + texts/s for quick and analyze
 ```
 
 ### 4. Build the data and baseline scores
@@ -119,7 +126,7 @@ With SlopTotal running, score known-human and known-AI passages and measure thro
 .venv\Scripts\python scripts\score_baseline.py    # -> data/baseline_scores.parquet
 ```
 
-`score_baseline.py` caches scores as they arrive, so an interrupted run resumes where it stopped. On a CPU-only SlopTotal, `analyze` takes about 3 hours over all passages and `quick-score` about 30 minutes. Use `--limit 20` for a smoke test, or `--endpoints quick` to skip `analyze`.
+`score_baseline.py` records every engine of each endpoint and caches scores in chunks, so an interrupted run resumes where it stopped. Use `--limit 20 --out-dir <tmp>` for a smoke test, or `--endpoints quick` to skip `analyze`.
 
 ### 5. (Optional) Re-calibrate the reward
 
@@ -131,7 +138,7 @@ This sets the fluency threshold from human passages and sanity-checks every gate
 
 ### 6. Train
 
-The easiest way to start best-of-N + DPO training is the launcher script. It starts SlopTotal if it isn't running, starts TensorBoard and opens it in the browser, and then runs `deai.train_dpo`:
+The easiest way to start best-of-N + DPO training is the launcher script. It starts TensorBoard and opens it in the browser, and then runs `deai.train_dpo`:
 
 ```powershell
 train.bat                                                    # Windows
@@ -143,7 +150,8 @@ The default is run `r-quick-qwen3-4b`: the quick-score reward, 3 rounds. Any ext
 ```powershell
 train.bat --rounds 1 --train-limit 8 --eval-limit 8 --n 4 --run smoke    # end-to-end smoke test
 train.bat --reward neural-quick --run r-neural-quick-qwen3-4b
-train.bat --base Qwen/Qwen2.5-1.5B-Instruct --gen-batch 64 --run r-quick```
+train.bat --base Qwen/Qwen2.5-1.5B-Instruct --gen-batch 64 --run r-quick
+```
 
 #### Settings in `.env`
 
@@ -171,7 +179,8 @@ copy .env.example .env    # then edit .env
 | `DEAI_LOSS_TYPE` | `--loss-type` | `sigmoid` |
 | `DEAI_EFFECTIVE_BATCH` | `--effective-batch` | `16` |
 | `DEAI_EXTRA_ARGS` | any other flags, space-separated | — |
-| `SLOPTOTAL_DIR` | — (where the launcher starts SlopTotal from) | `D:\AI\sloptotal` |
+| `DEAI_DETECTOR_DEVICE` | — (`cuda` or `cpu` for the detectors) | `cuda` when available |
+| `DEAI_SLOPBENCH` | — (SlopBench corpus folder) | `data\slopbench` |
 | `TB_PORT` | — (TensorBoard port) | `6006` |
 | `HF_HOME` | — (Hugging Face model cache) | Hugging Face's default |
 
@@ -218,10 +227,16 @@ Read `spotcheck.md` after every round. Metrics alone won't show a shortcut that 
 ```
 DeAI-project/
   pyproject.toml
-  train.bat, train.sh # DPO training launcher (SlopTotal + TensorBoard + training)
+  train.bat, train.sh # DPO training launcher (TensorBoard + training)
   .env.example        # launcher settings; copy to .env
   deai/
-    harness.py        # SlopTotal client (quick/analyze/ticket polling)
+    detectors/        # SlopTotal's 23 engines + calibration, in-process
+      base.py         #   engine interface, device
+      neural.py       #   9 classifiers
+      statistical.py  #   GPT-2-based engines
+      heuristic.py    #   linguistic, formulaic, structural, ...
+      language.py     #   language detection
+      calibration.py  #   quick/analyze overall scores and verdicts
     data.py           # SlopBench passages, splits, baseline table
     metrics.py        # small detector metrics (AUROC, TPR at FPR)
     reward.py         # gates + reward, reward sources
@@ -231,11 +246,12 @@ DeAI-project/
     train_grpo.py     # GRPO
     tblog.py          # TensorBoard logging and backfill
   scripts/
-    check_harness.py    # detector scores and throughput
+    fetch_slopbench.py  # data/slopbench (pinned SlopTotal commit)
+    check_detectors.py  # detector separation and throughput
     build_data.py       # data/passages.parquet
     score_baseline.py   # data/baseline_scores.parquet
     calibrate_reward.py # fluency threshold + gate sanity checks
-  tests/              # data, harness, reward (shortcut examples must score 0), training
+  tests/              # data, detectors (parity with SlopTotal), reward (shortcut examples must score 0), training
   data/               # gitignored
   runs/               # gitignored: checkpoints, logs, TensorBoard
 ```

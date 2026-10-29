@@ -29,9 +29,10 @@ from pathlib import Path
 import numpy as np
 
 from deai import policy
+from deai.detectors import BACKEND
 from deai.reward import REWARD_SOURCES
 from deai.tblog import RunLog
-from deai.rollout import (Scorer, check_server, evaluate, load_sources, read_jsonl, result_row,
+from deai.rollout import (Scorer, evaluate, load_sources, read_jsonl, result_row,
                           source_scores, write_jsonl)
 
 RUNS = Path(__file__).resolve().parents[1] / "runs"
@@ -105,7 +106,8 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
     for r in scored:
         ok = [s for s in r["samples"] if s["reward"] is not None]  # None = detector failed
         for s in r["samples"]:
-            gate_fail[s["failed_gate"] or "passed"] = gate_fail.get(s["failed_gate"] or "passed", 0) + 1
+            name = s["failed_gate"] or ("detector_failed" if s["reward"] is None else "passed")
+            gate_fail[name] = gate_fail.get(name, 0) + 1
         if len(ok) < 2:
             continue
         rewards = [s["reward"] for s in ok]
@@ -175,7 +177,8 @@ def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
     trainer = DPOTrainer(model=model, args=cfg, train_dataset=ds, processing_class=tok, peft_config=peft_cfg,
                          callbacks=[tb_cb])
     trainer.train()
-    tb_cb.tb_writer.close()
+    # Save first: the weights only exist in memory until now. TensorBoardCallback closes
+    # its writer itself in on_train_end (and sets tb_writer to None).
     trainer.model.save_pretrained(str(out))
     (run_dir / f"round_{k}" / "train_log.json").write_text(
         json.dumps(trainer.state.log_history, indent=1), encoding="utf-8")
@@ -217,7 +220,6 @@ def main() -> int:
     ap.add_argument("--reward", choices=sorted(REWARD_SOURCES), default="quick")
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--base", default=policy.BASE_MODEL)
-    ap.add_argument("--base-url", default="http://localhost:8000")
     ap.add_argument("--n", type=int, default=8, help="rewrites sampled per source")
     ap.add_argument("--temperature", type=float, default=0.9)
     ap.add_argument("--gen-batch", type=int, default=16,
@@ -242,22 +244,19 @@ def main() -> int:
     run_dir = RUNS / f"dpo-{args.run}"
     run_dir.mkdir(parents=True, exist_ok=True)
     cfg_path = run_dir / "config.json"
-    cfg = {**vars(args), "instruction": policy.INSTRUCTION}
+    # "detectors": runs scored by the SlopTotal server have no such key, so they can't be
+    # resumed and silently mix its scores (failed engines read as 0.0) with in-process ones.
+    cfg = {**vars(args), "instruction": policy.INSTRUCTION, "detectors": BACKEND}
     if cfg_path.exists():
         old = json.loads(cfg_path.read_text(encoding="utf-8"))
-        for key in ("reward", "base", "n", "train_limit", "train_nli", "instruction"):
+        for key in ("reward", "base", "n", "train_limit", "train_nli", "instruction", "detectors"):
             if old.get(key) != cfg[key]:
                 raise SystemExit(f"{run_dir} was started with {key}={old.get(key)!r}; "
                                  f"got {cfg[key]!r}. Use another --run name.")
     cfg_path.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
 
-    import asyncio
-    if not asyncio.run(check_server(args.base_url)):
-        print(f"SlopTotal is not answering at {args.base_url}. Start it with scripts\\start.bat.")
-        return 1
-
     endpoint = REWARD_SOURCES[args.reward][0]
-    scorer = Scorer(args.reward, args.base_url)
+    scorer = Scorer(args.reward)
     val = load_sources("val", args.eval_limit)
     src_scores = source_scores(scorer, val, run_dir / "val_source_scores.json")
     print(f"run {run_dir.name}: reward {args.reward} ({endpoint}), base {args.base}, "
@@ -279,6 +278,8 @@ def main() -> int:
             train = load_sources("train", args.train_limit, seed=k)
             last = k == args.rounds
             for stage in STAGES:
+                if stage in ("sample", "train"):
+                    scorer.release()  # the policy needs the GPU memory the detectors hold
                 if stage == "sample":
                     stage_sample(args, run_dir, k, train)
                 elif stage == "score":
