@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from deai import policy
+from deai import consolelog, policy, vram
 from deai.detectors import BACKEND
 from deai.reward import REWARD_SOURCES
 from deai.tblog import RunLog
@@ -133,7 +133,6 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
 
 
 def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
-    import torch
     from datasets import Dataset
     from peft import LoraConfig
     from torch.utils.tensorboard import SummaryWriter
@@ -165,6 +164,7 @@ def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
         max_length=args.max_length,
         bf16=True,
         gradient_checkpointing=True,
+        activation_offloading=vram.MODES[args.vram].activation_offloading,
         logging_steps=5,
         save_strategy="no",
         report_to="none",
@@ -184,7 +184,6 @@ def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
         json.dumps(trainer.state.log_history, indent=1), encoding="utf-8")
     del trainer, model
     policy.release_gpu()
-    torch.cuda.reset_peak_memory_stats()
 
 
 def stage_eval(args, run_dir: Path, k: int, scorer: Scorer, val, src_scores) -> dict:
@@ -239,7 +238,11 @@ def main() -> int:
     ap.add_argument("--max-length", type=int, default=2048)
     ap.add_argument("--skip-zero-shot", action="store_true", help="don't evaluate the base model (round 0)")
     ap.add_argument("--stop-after", choices=STAGES, default=None, help="stop the last round after this stage")
+    ap.add_argument("--vram", choices=sorted(vram.MODES), default=vram.DEFAULT,
+                    help="high: keep every model loaded (~24 GB); medium: swap the scorers out for policy "
+                         "stages (fits 16 GB); low: also offload activations, generate <= 8 (~12 GB)")
     args = ap.parse_args()
+    args.gen_batch = vram.gen_batch(vram.MODES[args.vram], args.gen_batch)
 
     run_dir = RUNS / f"dpo-{args.run}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -254,6 +257,7 @@ def main() -> int:
                 raise SystemExit(f"{run_dir} was started with {key}={old.get(key)!r}; "
                                  f"got {cfg[key]!r}. Use another --run name.")
     cfg_path.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
+    consolelog.start(run_dir)
 
     endpoint = REWARD_SOURCES[args.reward][0]
     scorer = Scorer(args.reward)
@@ -264,9 +268,17 @@ def main() -> int:
 
     tb = RunLog(run_dir)
     print(f"TensorBoard: .venv\\Scripts\\tensorboard --logdir {RUNS}", flush=True)
+    mode = vram.MODES[args.vram]
+    print(f"VRAM mode {mode.name}: generate() batch {args.gen_batch}"
+          f"{', scorers swapped out for policy stages' if mode.swap_scorers else ', everything stays loaded'}"
+          f"{', activation offloading' if mode.activation_offloading else ''}", flush=True)
+    vram.peak_gb()
     try:
         if not args.skip_zero_shot:
+            if mode.swap_scorers:
+                scorer.release()
             stage_eval(args, run_dir, 0, scorer, val, src_scores)
+            print(f"[round 0] eval peak: {vram.peak_gb()}", flush=True)
             tb.log_round(run_dir, 0)
             print_summary(run_dir, 0)
 
@@ -278,8 +290,8 @@ def main() -> int:
             train = load_sources("train", args.train_limit, seed=k)
             last = k == args.rounds
             for stage in STAGES:
-                if stage in ("sample", "train"):
-                    scorer.release()  # the policy needs the GPU memory the detectors hold
+                if mode.swap_scorers and stage in ("sample", "train", "eval"):
+                    scorer.release()  # the policy needs the GPU memory the scorers hold
                 if stage == "sample":
                     stage_sample(args, run_dir, k, train)
                 elif stage == "score":
@@ -290,6 +302,8 @@ def main() -> int:
                     stage_train(args, run_dir, k, tb)
                 elif stage == "eval":
                     stage_eval(args, run_dir, k, scorer, val, src_scores)
+                if stage != "pairs":
+                    print(f"[round {k}] {stage} peak: {vram.peak_gb()}", flush=True)
                 tb.log_round(run_dir, k)
                 if last and stage == args.stop_after:
                     print(f"stopped after {stage}")

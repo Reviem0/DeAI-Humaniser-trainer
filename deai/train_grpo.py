@@ -18,11 +18,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
-from deai import policy
+from deai import consolelog, policy, vram
 from deai.reward import REWARD_SOURCES
 from deai.rollout import Scorer, evaluate, load_sources, source_scores, write_jsonl
 from deai.tblog import RunLog
@@ -86,7 +87,12 @@ def main() -> int:
     ap.add_argument("--no-train-nli", dest="train_nli", action="store_false")
     ap.add_argument("--train-limit", type=int, default=None)
     ap.add_argument("--eval-limit", type=int, default=None)
+    ap.add_argument("--vram", choices=sorted(vram.MODES), default=vram.DEFAULT,
+                    help="high: detectors on the GPU beside the policy (~24 GB); medium/low: detectors "
+                         "on the CPU, low also generates <= 8 in eval")
     args = ap.parse_args()
+    mode = vram.MODES[args.vram]
+    args.gen_batch = vram.gen_batch(mode, args.gen_batch)
 
     import torch
     from datasets import Dataset
@@ -100,6 +106,7 @@ def main() -> int:
     (run_dir / "config.json").write_text(json.dumps(
         {**{k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
          "instruction": policy.INSTRUCTION, "detectors": BACKEND}, indent=1), encoding="utf-8")
+    consolelog.start(run_dir)
     init = []
     if args.init_from:
         k = args.init_round or max(int(p.parent.name.split("_")[1])
@@ -107,7 +114,12 @@ def main() -> int:
         init = adapters_up_to(args.init_from, k)
         print(f"starting from {args.init_from.name} round {k}")
 
+    if mode.grpo_detectors_on_cpu:
+        # GRPO holds the policy, its generations and the scorers at once. An explicit
+        # DEAI_DETECTOR_DEVICE wins; scores agree across devices to 0.001.
+        os.environ.setdefault("DEAI_DETECTOR_DEVICE", "cpu")
     scorer = Scorer(args.reward)
+    print(f"VRAM mode {mode.name}: detectors on {os.environ.get('DEAI_DETECTOR_DEVICE', 'cuda')}", flush=True)
     train = load_sources("train", args.train_limit)
     ds = Dataset.from_list([{"prompt": policy.messages(r.text), "source": r.text, "id": r.id}
                             for r in train.itertuples()])
@@ -157,6 +169,8 @@ def main() -> int:
     policy.release_gpu()
     torch.cuda.reset_peak_memory_stats()
 
+    if mode.swap_scorers:
+        scorer.release()
     val = load_sources("val", args.eval_limit)
     src_scores = source_scores(scorer, val, run_dir / "val_source_scores.json")
     model = policy.load_policy(args.base, [*init, adapter])

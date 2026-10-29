@@ -216,6 +216,16 @@ class HFQualityModels:
             self._nli = self._load_classifier(NLI_MODEL)
         return self._classify(self._nli, premises, hypotheses, NLI_ENTAILMENT)
 
+    def release(self) -> None:
+        """Drop the models and return their GPU memory; they reload on next use."""
+        self._embedder = self._cola = self._nli = None
+        import gc
+
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     def _load_classifier(self, name):
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer

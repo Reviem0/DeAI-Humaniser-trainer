@@ -97,7 +97,7 @@ The SlopBench corpus is fetched into `data/slopbench` at a pinned SlopTotal comm
 
 ### 1. Requirements
 
-- A CUDA GPU. Development uses one RTX 5070 Ti (16 GB): about 11 GB for training, plus the detectors (see above; the trainer frees them before each DPO step).
+- A CUDA GPU with 16 GB (development: one RTX 5070 Ti) in the default `--vram medium`; see [GPU memory](#gpu-memory).
 - Python **3.12**.
 - PyTorch built for CUDA 12.8 or newer (needed for Blackwell GPUs).
 
@@ -110,7 +110,17 @@ pip install torch --index-url https://download.pytorch.org/whl/cu128
 pip install -e .[dev]
 ```
 
-If GPU memory runs short, set `DEAI_DETECTOR_DEVICE=cpu`.
+### GPU memory
+
+The policy and the scorers don't fit a 16 GB card together. Worst case (600-word sources, Qwen3-4B, `--max-length 2048`): DPO training peaks at 12.3 GB and sampling 16 sequences at 11.6 GB; the detectors take 8.4 GB if all 23 load (11.3 GB while scoring) and the gates' quality models 1.5 GB. `--vram` (or `DEAI_VRAM`) chooses how they share the GPU:
+
+| Mode | What it does | Needs |
+|---|---|---|
+| `high` | Every model stays loaded. Fastest. | ~24 GB |
+| `medium` (default) | The detectors and quality models are freed before every policy stage (sample, train, eval generation) and reload to score. | 16 GB |
+| `low` | `medium`, plus activation offloading during DPO and at most 8 sequences per `generate()`. | ~12 GB |
+
+GRPO keeps the policy and the scorers loaded together, so in `medium` and `low` it runs the detectors on the CPU. No mode changes a score: the detectors are fp32 on any device and agree across CPU and GPU to 0.001. `import deai` also selects PyTorch's `cudaMallocAsync` allocator (unless `PYTORCH_CUDA_ALLOC_CONF` is set); with the default allocator, DPO training fragments to 18 GB reserved on Windows and spills into shared system memory. Each stage's peak is printed to `train.log`. To keep the detectors off the GPU entirely, set `DEAI_DETECTOR_DEVICE=cpu`.
 
 ### 3. Fetch SlopBench and check the detectors
 
@@ -178,6 +188,7 @@ copy .env.example .env    # then edit .env
 | `DEAI_LORA_R` | `--lora-r` | `16` |
 | `DEAI_LOSS_TYPE` | `--loss-type` | `sigmoid` |
 | `DEAI_EFFECTIVE_BATCH` | `--effective-batch` | `16` |
+| `DEAI_VRAM` | `--vram` | `medium` |
 | `DEAI_EXTRA_ARGS` | any other flags, space-separated | — |
 | `DEAI_DETECTOR_DEVICE` | — (`cuda` or `cpu` for the detectors) | `cuda` when available |
 | `DEAI_SLOPBENCH` | — (SlopBench corpus folder) | `data\slopbench` |
@@ -202,6 +213,8 @@ Every stage skips work whose output already exists, so **rerunning the same comm
 ```
 
 Each round's validation metrics and per-gate pass rates, live scoring progress and the trainer's loss are logged under `runs/<run>/tb/`. Runs overlay on the same charts. Runs from before TensorBoard was added can be logged with `python -m deai.tblog`; running it again doesn't log anything twice.
+
+Everything a run prints, including warnings and tracebacks, is also appended to `runs/<run>/train.log`, with the time on each line and a header (command, git commit) each time the run starts or resumes.
 
 Each DPO round writes its outputs to `runs/dpo-<run>/round_k/`:
 
@@ -245,6 +258,7 @@ DeAI-project/
     train_dpo.py      # best-of-N + DPO loop
     train_grpo.py     # GRPO
     tblog.py          # TensorBoard logging and backfill
+    consolelog.py     # runs/<run>/train.log: console output of every run
   scripts/
     fetch_slopbench.py  # data/slopbench (pinned SlopTotal commit)
     check_detectors.py  # detector separation and throughput

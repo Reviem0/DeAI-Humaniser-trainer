@@ -123,7 +123,7 @@ def test_stage_train_saves_adapter_after_callbacks_close(tmp_path, monkeypatch):
     write_jsonl(tmp_path / "round_1" / "pairs.jsonl", [{"prompt": policy.messages("s"), "chosen": [{"role": "assistant", "content": "a"}],
                                                         "rejected": [{"role": "assistant", "content": "b"}]}])
     args = SimpleNamespace(base="m", batch_size=1, effective_batch=16, lr=2e-5, beta=0.1, loss_type="sigmoid",
-                           sft_weight=0.2, max_length=2048, lora_r=16)
+                           sft_weight=0.2, max_length=2048, lora_r=16, vram="medium")
     tb = RunLog(tmp_path)
     train_dpo.stage_train(args, tmp_path, 1, tb)
     tb.close()

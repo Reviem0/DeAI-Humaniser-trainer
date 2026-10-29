@@ -59,7 +59,7 @@ def result_row(r: RewardResult) -> dict:
 
 
 class Scorer:
-    """Reward models and detectors stay loaded across calls; ``release()`` frees the detectors."""
+    """Reward models and detectors stay loaded across calls until ``release()``."""
 
     def __init__(self, reward_source: str, config: RewardConfig = RewardConfig(),
                  detectors: Detectors | None = None):
@@ -83,8 +83,9 @@ class Scorer:
         return out
 
     def release(self) -> None:
-        """Free the detectors' GPU memory before training; they reload on the next score."""
+        """Free the detectors' and quality models' GPU memory; they reload on the next score."""
         self.detectors.unload()
+        self.models.release()
 
     async def _score(self, sources, rewrites, finished, use_nli):
         reward = Reward(self.detector, self.models, dataclasses.replace(self.config, use_nli=use_nli))
