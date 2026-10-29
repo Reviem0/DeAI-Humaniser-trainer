@@ -233,7 +233,7 @@ class E5Engine(_SoftmaxIndexEngine):
 
 class OpenAIEngine(_SoftmaxIndexEngine):
     key, name, engine_type = "classifier_openai", "OpenAI Detector", "classifier"
-    model_name = "roberta-base-openai-detector"
+    model_name = "openai-community/roberta-base-openai-detector"  # alias "roberta-base-openai-detector"
     keywords = ("fake",)
 
 

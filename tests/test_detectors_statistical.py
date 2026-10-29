@@ -207,4 +207,4 @@ def test_one_forward_pass_per_model(lm, monkeypatch):
     lm.clear()
     for e in engines:
         e.score(text)
-    assert sorted(calls) == ["distilgpt2", "gpt2-medium"]
+    assert sorted(calls) == ["distilbert/distilgpt2", "openai-community/gpt2-medium"]

@@ -30,8 +30,10 @@ import torch
 
 from deai.detectors.base import detector_device
 
-GPT2_MODEL = "gpt2-medium"
-DISTIL_MODEL = "distilgpt2"
+# Canonical repo ids: the hub still redirects "gpt2-medium" / "distilgpt2" (same commits),
+# but downloads through the alias fail with a 404 on large files.
+GPT2_MODEL = "openai-community/gpt2-medium"
+DISTIL_MODEL = "distilbert/distilgpt2"
 MAX_TOKENS = 1024
 CACHE_SIZE = 5  # texts, as SlopTotal's _MAX_CACHE
 
