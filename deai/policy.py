@@ -22,6 +22,13 @@ INSTRUCTION = (
 # Qwen3 templates think unless told not to; other templates ignore the flag.
 CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
 TOKENS_PER_WORD = 1.6  # generous for English with Qwen's tokenizer
+# LoRA goes on every attention and MLP projection. Qwen3.5 (e.g. Qwen/Qwen3.5-9B) has
+# full attention in every 4th layer only; the others are linear attention (Gated
+# DeltaNet), whose projections are the in_proj_* / out_proj names. A name the base
+# doesn't have matches nothing, so Qwen3 adapters are unchanged. in_proj_a/b (a few
+# outputs per head, the decay and gate) are left out.
+LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",
+                "in_proj_qkv", "in_proj_z", "out_proj"]
 
 
 def messages(source: str) -> list[dict]:
@@ -102,6 +109,19 @@ def generate(model, tok, sources: Sequence[str], n: int = 1, temperature: float 
         if progress:
             print(f"    generated {min((b_i + 1) * per_batch, len(order))}/{len(order)} sources", flush=True)
     return out
+
+
+def length_chunks(sources: Sequence[str], n: int = 1, max_seqs_per_batch: int = 16,
+                  batches_per_chunk: int = 2) -> list[list[int]]:
+    """Source indices in chunks that ``generate`` batches exactly as it batches all of them.
+
+    ``generate`` sorts by length and cuts batches from that order, so contiguous
+    slices of it that hold whole batches give the same batches, padding and (greedy)
+    outputs whether the chunks run in one call, one after another, or on several GPUs.
+    """
+    order = sorted(range(len(sources)), key=lambda i: len(sources[i]))
+    size = max(1, max_seqs_per_batch // n) * batches_per_chunk
+    return [order[i:i + size] for i in range(0, len(order), size)]
 
 
 def _extra_stop_ids(model) -> list[int]:

@@ -150,8 +150,7 @@ def main() -> int:
         log_completions=False,
     )
     peft_cfg = LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.05, task_type="CAUSAL_LM",
-                          target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                                          "gate_proj", "up_proj", "down_proj"])
+                          target_modules=policy.LORA_TARGETS)
     tb = RunLog(run_dir)
     print(f"TensorBoard: .venv\\Scripts\\tensorboard --logdir {RUNS}", flush=True)
     reward_fn = GateReward(scorer, args.max_completion_length, run_dir / "rollouts.jsonl", args.train_nli, tb)

@@ -88,6 +88,7 @@ opt DEAI_LORA_R --lora-r
 opt DEAI_LOSS_TYPE --loss-type
 opt DEAI_EFFECTIVE_BATCH --effective-batch
 opt DEAI_VRAM --vram
+opt DEAI_GPUS --gpus
 read -ra extra <<< "${DEAI_EXTRA_ARGS:-}"
 args+=("${extra[@]}")
 

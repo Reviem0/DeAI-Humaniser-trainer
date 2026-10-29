@@ -41,6 +41,15 @@ PY="$ROOT/.venv/bin/python"
 "$PY" -m pip install --upgrade pip -q
 "$PY" -m pip install -r requirements.txt
 "$PY" -m pip install -e . --no-deps -q
+# Linear-attention kernels for Qwen3.5 bases (Qwen/Qwen3.5-9B, ...). Without them transformers
+# falls back to a correct but much slower PyTorch path; Qwen3 bases don't use them. Linux only.
+# The constraint keeps torch/transformers at the pinned versions. causal-conv1d builds
+# against the installed torch (it fetches a prebuilt wheel when one matches, else needs nvcc:
+# `module load cuda` first).
+"$PY" -m pip install -c requirements.txt flash-linear-attention==0.6.0 \
+    || echo "Warning: flash-linear-attention failed to install; Qwen3.5 bases will be slow." >&2
+"$PY" -m pip install -c requirements.txt --no-build-isolation causal-conv1d==1.7.0 \
+    || echo "Warning: causal-conv1d failed to build; Qwen3.5 bases will be slower (try: module load cuda)." >&2
 
 # --- 2. data --------------------------------------------------------------------
 step "2/4 SlopBench corpus and passages"

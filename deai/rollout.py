@@ -112,7 +112,6 @@ def evaluate(model, tok, val: pd.DataFrame, scorer: Scorer, out_dir: Path,
     """
     from deai.policy import generate
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
     samples = [s[0] for s in generate(model, tok, val.text.tolist(), n=1, temperature=0.0,
                                       max_seqs_per_batch=gen_batch)]
@@ -122,6 +121,14 @@ def evaluate(model, tok, val: pd.DataFrame, scorer: Scorer, out_dir: Path,
     model.to("cpu")
     from deai.policy import release_gpu
     release_gpu()
+    return score_eval(val, samples, scorer, out_dir, source_scores, gen_s)
+
+
+def score_eval(val: pd.DataFrame, samples: Sequence, scorer: Scorer, out_dir: Path,
+               source_scores: dict[str, float | None], generation_s: float) -> dict:
+    """``evaluate`` after generation: one greedy ``Sample`` per val source, in val's order.
+    Writes eval.jsonl, metrics.json and spotcheck.md to ``out_dir``."""
+    out_dir.mkdir(parents=True, exist_ok=True)
     rewrites = [s.text for s in samples]
     results = scorer.score(val.text.tolist(), rewrites, [s.finished for s in samples], use_nli=True)
     det = scorer.detect(rewrites)
@@ -134,7 +141,7 @@ def evaluate(model, tok, val: pd.DataFrame, scorer: Scorer, out_dir: Path,
                      **result_row(res)})
     write_jsonl(out_dir / "eval.jsonl", rows)
     metrics = summarize_eval(rows)
-    metrics["generation_s"] = round(gen_s, 1)
+    metrics["generation_s"] = round(generation_s, 1)
     if metrics["detector_failed"]:
         print(f"WARNING: {metrics['detector_failed']} detector failures in eval (see eval.jsonl 'error')",
               flush=True)

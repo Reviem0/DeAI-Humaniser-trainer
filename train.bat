@@ -67,6 +67,7 @@ if defined DEAI_LORA_R set "ARGS=%ARGS% --lora-r %DEAI_LORA_R%"
 if defined DEAI_LOSS_TYPE set "ARGS=%ARGS% --loss-type %DEAI_LOSS_TYPE%"
 if defined DEAI_EFFECTIVE_BATCH set "ARGS=%ARGS% --effective-batch %DEAI_EFFECTIVE_BATCH%"
 if defined DEAI_VRAM set "ARGS=%ARGS% --vram %DEAI_VRAM%"
+if defined DEAI_GPUS set "ARGS=%ARGS% --gpus %DEAI_GPUS%"
 if defined DEAI_EXTRA_ARGS set "ARGS=%ARGS% %DEAI_EXTRA_ARGS%"
 set "PYTHONIOENCODING=utf-8"
 echo.

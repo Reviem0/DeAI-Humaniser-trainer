@@ -28,11 +28,11 @@ from pathlib import Path
 
 import numpy as np
 
-from deai import consolelog, policy, vram
+from deai import consolelog, multigpu, policy, vram
 from deai.detectors import BACKEND
 from deai.reward import REWARD_SOURCES
 from deai.tblog import RunLog
-from deai.rollout import (Scorer, evaluate, load_sources, read_jsonl, result_row,
+from deai.rollout import (Scorer, load_sources, read_jsonl, result_row, score_eval,
                           source_scores, write_jsonl)
 
 RUNS = Path(__file__).resolve().parents[1] / "runs"
@@ -47,26 +47,55 @@ def adapters_up_to(run_dir: Path, k: int) -> list[Path]:
 # Stages
 # ----------------------------------------------------------------------
 
+# Work functions for deai.multigpu.imap, which runs them here or in one process per GPU.
+
+def _load_policy(base: str, adapters: list[str]):
+    return policy.load_policy(base, adapters), policy.load_tokenizer(base)
+
+
+def _generate(state, **kwargs) -> list[list[policy.Sample]]:
+    model, tok = state
+    return policy.generate(model, tok, progress=False, **kwargs)
+
+
+def _load_scorer(reward: str) -> Scorer:
+    return Scorer(reward)
+
+
+def _score(scorer: Scorer, rows: list[dict], use_nli: bool) -> list[dict]:
+    srcs = [r["source_text"] for r in rows for _ in r["samples"]]
+    rws = [s["text"] for r in rows for s in r["samples"]]
+    fin = [s["finished"] for r in rows for s in r["samples"]]
+    results = iter(scorer.score(srcs, rws, fin, use_nli=use_nli))
+    return [{"id": r["id"], "samples": [{**s, **result_row(next(results))} for s in r["samples"]]}
+            for r in rows]
+
+
 def stage_sample(args, run_dir: Path, k: int, train) -> None:
     path = run_dir / f"round_{k}" / "samples.jsonl"
     done = {r["id"] for r in read_jsonl(path)}
     todo = train[~train.id.isin(done)]
     if todo.empty:
         return
-    print(f"[round {k}] sampling {args.n} rewrites for {len(todo)} sources", flush=True)
-    tok = policy.load_tokenizer(args.base)
-    model = policy.load_policy(args.base, adapters_up_to(run_dir, k - 1))
-    chunk = 32  # write as we go so an interruption loses little
-    for start in range(0, len(todo), chunk):
+    print(f"[round {k}] sampling {args.n} rewrites for {len(todo)} sources on {len(args.gpus) or 'no'} GPU(s)",
+          flush=True)
+    # Written as chunks finish, so an interruption loses little. The seed is per chunk, so the
+    # samples are the same however many GPUs share the chunks.
+    chunk = 32
+    tasks = [(start, dict(sources=todo.text.iloc[start:start + chunk].tolist(), n=args.n,
+                          temperature=args.temperature, max_seqs_per_batch=args.gen_batch,
+                          seed=k * 100_000 + start))
+             for start in range(0, len(todo), chunk)]
+    adapters = [str(a) for a in adapters_up_to(run_dir, k - 1)]
+    n = 0
+    for start, outs in multigpu.imap("deai.train_dpo:_generate", tasks, args.gpus,
+                                     "deai.train_dpo:_load_policy", (args.base, adapters)):
         part = todo.iloc[start:start + chunk]
-        outs = policy.generate(model, tok, part.text.tolist(), n=args.n, temperature=args.temperature,
-                               max_seqs_per_batch=args.gen_batch, seed=k * 100_000 + start, progress=False)
         write_jsonl(path, [{"id": r.id, "source_text": r.text,
                             "samples": [s.__dict__ for s in samples]}
                            for r, samples in zip(part.itertuples(), outs)], mode="a")
-        print(f"    {min(start + chunk, len(todo))}/{len(todo)}", flush=True)
-    del model
-    policy.release_gpu()
+        n += len(part)
+        print(f"    {n}/{len(todo)}", flush=True)
 
 
 def stage_score(args, run_dir: Path, k: int, scorer: Scorer, tb: RunLog) -> None:
@@ -77,20 +106,17 @@ def stage_score(args, run_dir: Path, k: int, scorer: Scorer, tb: RunLog) -> None
     if not todo:
         return
     print(f"[round {k}] scoring {sum(len(r['samples']) for r in todo)} rewrites "
-          f"({args.reward} reward)", flush=True)
+          f"({args.reward} reward) on {len(args.gpus) or 'no'} GPU(s)", flush=True)
     t0 = time.perf_counter()
     chunk = 16
-    for start in range(0, len(todo), chunk):
-        part = todo[start:start + chunk]
-        srcs = [r["source_text"] for r in part for _ in r["samples"]]
-        rws = [s["text"] for r in part for s in r["samples"]]
-        fin = [s["finished"] for r in part for s in r["samples"]]
-        results = iter(scorer.score(srcs, rws, fin, use_nli=args.train_nli))
-        out = []
-        for r in part:
-            out.append({"id": r["id"], "samples": [{**s, **result_row(next(results))} for s in r["samples"]]})
+    tasks = [(start, dict(rows=todo[start:start + chunk], use_nli=args.train_nli))
+             for start in range(0, len(todo), chunk)]
+    n = 0
+    # On one GPU this process's scorer does the work; each extra GPU loads its own.
+    for _, out in multigpu.imap("deai.train_dpo:_score", tasks, args.gpus,
+                                "deai.train_dpo:_load_scorer", (args.reward,), state=scorer):
         write_jsonl(path, out, mode="a")
-        n = min(start + chunk, len(todo))
+        n += len(out)
         tb.log_scoring(k, (len(done) + n) * args.n, [s for r in out for s in r["samples"]])
         el = time.perf_counter() - t0
         print(f"    {n}/{len(todo)} sources, {el / 60:.1f} min, ETA {(len(todo) - n) * el / n / 60:.0f} min",
@@ -171,8 +197,7 @@ def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
         seed=k,
     )
     peft_cfg = LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.05, task_type="CAUSAL_LM",
-                          target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                                          "gate_proj", "up_proj", "down_proj"])
+                          target_modules=policy.LORA_TARGETS)
     tb_cb = TensorBoardCallback(SummaryWriter(tb.trainer_dir(f"train_round_{k}")))
     trainer = DPOTrainer(model=model, args=cfg, train_dataset=ds, processing_class=tok, peft_config=peft_cfg,
                          callbacks=[tb_cb])
@@ -191,12 +216,19 @@ def stage_eval(args, run_dir: Path, k: int, scorer: Scorer, val, src_scores) -> 
     if (out_dir / "metrics.json").exists():
         return json.loads((out_dir / "metrics.json").read_text(encoding="utf-8"))
     print(f"[round {k}] evaluating on {len(val)} val sources", flush=True)
-    tok = policy.load_tokenizer(args.base)
-    model = policy.load_policy(args.base, adapters_up_to(run_dir, k))
-    metrics = evaluate(model, tok, val, scorer, out_dir, src_scores, args.gen_batch)
-    del model
-    policy.release_gpu()
-    return metrics
+    t0 = time.perf_counter()
+    texts = val.text.tolist()
+    # Chunks of whole generate() batches: the same greedy rewrites as one call over all of val.
+    chunks = policy.length_chunks(texts, 1, args.gen_batch)
+    tasks = [(j, dict(sources=[texts[i] for i in idx], n=1, temperature=0.0, max_seqs_per_batch=args.gen_batch))
+             for j, idx in enumerate(chunks)]
+    adapters = [str(a) for a in adapters_up_to(run_dir, k)]
+    samples = [None] * len(texts)
+    for j, outs in multigpu.imap("deai.train_dpo:_generate", tasks, args.gpus,
+                                 "deai.train_dpo:_load_policy", (args.base, adapters)):
+        for i, s in zip(chunks[j], outs):
+            samples[i] = s[0]
+    return score_eval(val, samples, scorer, out_dir, src_scores, time.perf_counter() - t0)
 
 
 # ----------------------------------------------------------------------
@@ -241,8 +273,12 @@ def main() -> int:
     ap.add_argument("--vram", choices=sorted(vram.MODES), default=vram.DEFAULT,
                     help="high: keep every model loaded (~24 GB); medium: swap the scorers out for policy "
                          "stages (fits 16 GB); low: also offload activations, generate <= 8 (~12 GB)")
+    ap.add_argument("--gpus", type=int, default=None,
+                    help="GPUs that share sampling, scoring and eval generation, one process each "
+                         "(default: all visible); DPO training runs on the first. --vram applies per GPU")
     args = ap.parse_args()
     args.gen_batch = vram.gen_batch(vram.MODES[args.vram], args.gen_batch)
+    args.gpus = multigpu.gpus(args.gpus)
 
     run_dir = RUNS / f"dpo-{args.run}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -272,6 +308,10 @@ def main() -> int:
     print(f"VRAM mode {mode.name}: generate() batch {args.gen_batch}"
           f"{', scorers swapped out for policy stages' if mode.swap_scorers else ', everything stays loaded'}"
           f"{', activation offloading' if mode.activation_offloading else ''}", flush=True)
+    if len(args.gpus) > 1:
+        print(f"GPUs {','.join(args.gpus)}: sampling, scoring and eval generation run one process per GPU "
+              f"(peaks below are this process's; workers report their own); DPO training on GPU {args.gpus[0]}",
+              flush=True)
     vram.peak_gb()
     try:
         if not args.skip_zero_shot:

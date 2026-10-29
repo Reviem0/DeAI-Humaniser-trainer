@@ -15,6 +15,9 @@ So the policy and the scorers fit a 16 GB card only one at a time:
   DPO and at most 8 sequences per ``generate()``. GRPO, which holds the policy
   and the scorers at once, runs the detectors on the CPU in medium and low.
 
+With several GPUs (``deai/multigpu.py``) each worker process has a GPU of its
+own, and the mode applies to each of them as to a single card.
+
 None of this changes a score: the detectors run fp32 on any device (CPU and GPU
 agree to 0.001) and the quality models stay on the GPU. ``deai/__init__.py``
 picks the cudaMallocAsync allocator, which keeps the training peak from
