@@ -1,0 +1,24 @@
+# Pinned to the versions in the working .venv (Python 3.12, Windows, CUDA 12.8).
+# pyproject.toml holds the loose ranges; this file reproduces a known-good environment.
+#   .venv\Scripts\python -m pip install -r requirements.txt
+#   .venv\Scripts\python -m pip install -e . --no-deps
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+torch==2.11.0+cu128
+transformers==5.20.2
+trl==1.16.0
+peft==0.21.2
+accelerate==1.15.0
+datasets==5.1.0
+sentence-transformers==6.2.0
+huggingface_hub==2.3.0
+safetensors==0.8.0
+tokenizers==0.23.3
+numpy==2.5.4
+pandas==3.1.0
+pyarrow==26.0.0
+httpx==0.28.1
+tensorboard==2.21.0
+
+# dev
+pytest==9.1.1
