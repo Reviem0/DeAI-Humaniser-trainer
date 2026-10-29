@@ -5,3 +5,4 @@ __pycache__/
 data/
 runs/
 .env
+hpc_env.sh
