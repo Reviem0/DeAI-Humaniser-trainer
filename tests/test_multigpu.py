@@ -86,6 +86,13 @@ def test_imap_spawns_one_process_per_device_each_seeing_its_gpu(monkeypatch):
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "outer"
 
 
+def test_imap_spawn_isolates_even_one_device(monkeypatch):
+    # DPO training: Trainer must see only one GPU, or it wraps the model in nn.DataParallel.
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+    out = dict(multigpu.imap(f"{HERE}:_work", [(0, {"x": 1})], ["0"], f"{HERE}:_init", (10,), spawn=True))
+    assert out == {0: (11, "0")}
+
+
 def test_imap_raises_a_workers_error():
     with pytest.raises(RuntimeError, match="ValueError: bad task"):
         list(multigpu.imap(f"{HERE}:_fail", [(0, {"x": 0})], ["0", "1"], f"{HERE}:_init", (0,)))

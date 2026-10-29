@@ -159,6 +159,30 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
 
 
 def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
+    pairs = read_jsonl(run_dir / f"round_{k}" / "pairs.jsonl")
+    if not pairs:
+        raise SystemExit(f"round {k}: no DPO pairs (every source's best rewrite scored 0). "
+                         "Try a warm start or a looser prompt; see PLAN.md Phase 4 step 0.")
+    print(f"[round {k}] DPO on {len(pairs)} pairs", flush=True)
+    tb_dir = tb.trainer_dir(f"train_round_{k}")
+    if len(args.gpus) > 1:
+        # With several GPUs visible, Trainer wraps the model in nn.DataParallel, which DPOTrainer
+        # refuses; train in a process that sees only the first GPU instead.
+        print(f"[round {k}] training in a process on GPU {args.gpus[0]} (its log goes to the console only)",
+              flush=True)
+        for _ in multigpu.imap("deai.train_dpo:_train", [(k, dict(args=args, run_dir=run_dir, k=k, pairs=pairs,
+                                                                   tb_dir=tb_dir))],
+                               args.gpus[:1], "deai.train_dpo:_no_state", spawn=True):
+            pass
+    else:
+        _train(None, args, run_dir, k, pairs, tb_dir)
+
+
+def _no_state() -> None:
+    return None
+
+
+def _train(_, args, run_dir: Path, k: int, pairs: list[dict], tb_dir: str) -> None:
     from datasets import Dataset
     from peft import LoraConfig
     from torch.utils.tensorboard import SummaryWriter
@@ -166,11 +190,6 @@ def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
     from trl import DPOConfig, DPOTrainer
 
     out = run_dir / f"round_{k}" / "adapter"
-    pairs = read_jsonl(run_dir / f"round_{k}" / "pairs.jsonl")
-    if not pairs:
-        raise SystemExit(f"round {k}: no DPO pairs (every source's best rewrite scored 0). "
-                         "Try a warm start or a looser prompt; see PLAN.md Phase 4 step 0.")
-    print(f"[round {k}] DPO on {len(pairs)} pairs", flush=True)
     ds = Dataset.from_list([{"prompt": p["prompt"], "chosen": p["chosen"], "rejected": p["rejected"],
                              "chat_template_kwargs": policy.CHAT_TEMPLATE_KWARGS} for p in pairs])
     tok = policy.load_tokenizer(args.base)
@@ -198,7 +217,7 @@ def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
     )
     peft_cfg = LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.05, task_type="CAUSAL_LM",
                           target_modules=policy.LORA_TARGETS)
-    tb_cb = TensorBoardCallback(SummaryWriter(tb.trainer_dir(f"train_round_{k}")))
+    tb_cb = TensorBoardCallback(SummaryWriter(tb_dir))
     trainer = DPOTrainer(model=model, args=cfg, train_dataset=ds, processing_class=tok, peft_config=peft_cfg,
                          callbacks=[tb_cb])
     trainer.train()

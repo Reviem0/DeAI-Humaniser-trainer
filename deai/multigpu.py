@@ -40,17 +40,18 @@ def gpus(requested: int | None = None) -> list[str]:
 
 
 def imap(work: str, tasks: Iterable[Task], devices: list[str], init: str, init_args: tuple = (),
-         state: Any = None) -> Iterator[tuple[Any, Any]]:
+         state: Any = None, spawn: bool = False) -> Iterator[tuple[Any, Any]]:
     """Yield ``(key, work(state, **kwargs))`` for every ``(key, kwargs)`` task as it finishes.
 
     ``work`` and ``init`` are ``"module:function"`` names, so a spawned process can
     import them. On one device (or none) the tasks run here, in order, on ``state``
     if given, else on ``init(*init_args)``, which is freed afterwards. On several,
     every device gets a process that calls ``init`` once and takes tasks from a
-    shared queue, so results come back out of order.
+    shared queue, so results come back out of order. ``spawn`` runs even one device
+    in its own process, for code that must see only that GPU.
     """
     tasks = list(tasks)
-    if len(devices) <= 1:
+    if len(devices) <= 1 and not (spawn and devices):
         yield from _imap_here(work, tasks, init, init_args, state)
     else:
         yield from _imap_spawned(work, tasks, devices, init, init_args)

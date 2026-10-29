@@ -41,6 +41,15 @@ if [[ ! -x .venv/bin/python ]]; then
 fi
 PY="$ROOT/.venv/bin/python"
 "$PY" -c 'import sys; assert sys.version_info[:2] == (3, 12), f"need Python 3.12, venv has {sys.version}"'
+# Some cluster Pythons are built without these stdlib modules; the embedding gate needs bz2.
+if ! "$PY" -c 'import bz2, lzma, sqlite3, ssl' 2>/dev/null; then
+    echo "Error: $("$PY" -c 'import sys; print(sys.base_prefix)') lacks a stdlib module:" >&2
+    "$PY" -c 'import bz2, lzma, sqlite3, ssl' 2>&1 | tail -1 >&2
+    echo "Use a complete Python 3.12 and rebuild the venv, e.g. with uv (no root needed):" >&2
+    echo "  curl -LsSf https://astral.sh/uv/install.sh | sh && ~/.local/bin/uv python install 3.12" >&2
+    echo "  rm -rf .venv && PYTHON=\$(~/.local/bin/uv python find 3.12) scripts/hpc_setup.sh ..." >&2
+    exit 1
+fi
 "$PY" -m pip install --upgrade pip -q
 "$PY" -m pip install -r requirements.txt
 "$PY" -m pip install -e . --no-deps -q
