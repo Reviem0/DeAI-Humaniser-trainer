@@ -92,7 +92,7 @@ class RunLog:
                 if isinstance(s.get(key), (int, float)):
                     w.add_scalar(f"best_of_n/{key}", s[key], k)
             if s.get("sources"):
-                w.add_scalar("best_of_n/pair_yield", s["pairs"] / s["sources"], k)
+                w.add_scalar("best_of_n/pair_yield", s.get("sources_paired", s["pairs"]) / s["sources"], k)
             total = sum(s.get("samples_by_failed_gate", {}).values()) or 1
             for gate, count in s.get("samples_by_failed_gate", {}).items():
                 w.add_scalar(f"best_of_n_failed_at/{gate}", count / total, k)

@@ -59,10 +59,33 @@ def test_passing_pairs_compare_rewrites_that_passed_every_gate(tmp_path):
 
     pairs, stats = by_mode["passing"]
     assert pairs == {"a": ("a-best", "a-ok", "passing"), "b": ("b-pass", "b-nli", "extremes")}
-    assert stats["pairs_by_kind"] == {"passing": 1, "extremes": 1} and stats["pair_mode"] == "passing"
+    assert stats["pairs_by_kind"] == {"passing": 1, "extremes": 1, "gate": 0} and stats["pair_mode"] == "passing"
 
     pairs, _ = by_mode["passing-only"]
     assert pairs == {"a": ("a-best", "a-ok", "passing")}
+
+
+def test_both_pairs_teach_evasion_and_meaning_per_source(tmp_path):
+    from deai.rollout import read_jsonl
+    rd = make_round(tmp_path, {
+        "a": [sample("a-best", 0.7), sample("a-ok", 0.4), sample("a-nli", 0.0, "nli")],   # both pairs
+        "b": [sample("b-pass", 0.5), sample("b-nli", 0.0, "nli")],                        # gate pair only
+        "c": [sample("c1", 0.50), sample("c2", 0.52), sample("c-len", 0.0, "length")],    # passing gap < margin
+        "d": [sample("d-pass", 0.6), sample("d-len", 0.0, "length"), sample("d-nli", 0.0, "nli"),
+              sample("d-len2", 0.0, "length")],                                           # NLI failure preferred
+        "e": [sample("e1", 0.0, "nli"), sample("e2", 0.0, "length")],                     # nothing passed
+        "f": [sample("f1", 0.3), sample("f2", 0.6)],                                      # nothing failed
+    })
+    stats = stage_pairs(SimpleNamespace(min_margin=0.05, pairs="both"), tmp_path, 1)
+    pairs = sorted((p["id"], p["chosen"][0]["content"], p["rejected"][0]["content"], p["kind"])
+                   for p in read_jsonl(rd / "pairs.jsonl"))
+    assert pairs == [("a", "a-best", "a-nli", "gate"), ("a", "a-best", "a-ok", "passing"),
+                     ("b", "b-pass", "b-nli", "gate"),
+                     ("c", "c2", "c-len", "gate"),
+                     ("d", "d-pass", "d-nli", "gate"),
+                     ("f", "f2", "f1", "passing")]
+    assert stats["pairs_by_kind"] == {"passing": 2, "extremes": 0, "gate": 4}
+    assert stats["pairs"] == 6 and stats["sources_paired"] == 5
 
 
 def test_adapter_chain_is_ordered(tmp_path):

@@ -129,7 +129,11 @@ def stage_score(args, run_dir: Path, k: int, scorer: Scorer, tb: RunLog) -> None
 #   passing       best vs worst of the rewrites that passed every gate, which differ only by
 #                 detector score; extremes for sources with fewer than two passing rewrites.
 #   passing-only  as passing, but no pair for sources with fewer than two passing rewrites.
-PAIR_MODES = ("extremes", "passing", "passing-only")
+#   both          up to two pairs per source, so every source teaches evasion and meaning:
+#                 the passing pair, and the best passing rewrite vs one that failed a gate
+#                 (NLI if any did: the near-copies that lower the detector score by breaking
+#                 entailment). passing alone traded NLI for evasion (PLAN.md, Phase 4).
+PAIR_MODES = ("extremes", "passing", "passing-only", "both")
 
 
 def stage_pairs(args, run_dir: Path, k: int) -> dict:
@@ -139,7 +143,8 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
     rng = random.Random(k)
     pairs, all_rewards, best = [], [], []
     gate_fail: dict[str, int] = {}
-    kinds = {"passing": 0, "extremes": 0}
+    kinds = {"passing": 0, "extremes": 0, "gate": 0}
+    paired = 0
     for r in scored:
         ok = [s for s in r["samples"] if s["reward"] is not None]  # None = detector failed
         for s in r["samples"]:
@@ -150,31 +155,55 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
         all_rewards += [s["reward"] for s in ok]
         best.append(max(s["reward"] for s in ok))
         passing = [s for s in ok if s["failed_gate"] is None]
-        if mode != "extremes" and len(passing) >= 2:
-            pool, kind = passing, "passing"
+        if mode == "both":
+            found = _pairs_both(ok, passing, args.min_margin, rng)
+        elif mode != "extremes" and len(passing) >= 2:
+            found = _pair(passing, "passing", args.min_margin, rng)
         elif mode == "passing-only":
-            continue
+            found = []
         else:
-            pool, kind = ok, "extremes"
-        rewards = [s["reward"] for s in pool]
-        hi, lo = max(rewards), min(rewards)
-        if hi <= 0 or hi - lo < args.min_margin:
-            continue
-        chosen = rng.choice([s for s in pool if s["reward"] == hi])
-        rejected = rng.choice([s for s in pool if s["reward"] == lo])
-        kinds[kind] += 1
-        pairs.append({"id": r["id"], "prompt": policy.messages(sources[r["id"]]),
-                      "chosen": [{"role": "assistant", "content": chosen["text"]}],
-                      "rejected": [{"role": "assistant", "content": rejected["text"]}],
-                      "chosen_reward": hi, "rejected_reward": lo, "kind": kind})
+            found = _pair(ok, "extremes", args.min_margin, rng)
+        paired += bool(found)
+        for chosen, rejected, kind in found:
+            kinds[kind] += 1
+            pairs.append({"id": r["id"], "prompt": policy.messages(sources[r["id"]]),
+                          "chosen": [{"role": "assistant", "content": chosen["text"]}],
+                          "rejected": [{"role": "assistant", "content": rejected["text"]}],
+                          "chosen_reward": chosen["reward"], "rejected_reward": rejected["reward"],
+                          "kind": kind})
     write_jsonl(run_dir / f"round_{k}" / "pairs.jsonl", pairs)
-    stats = {"sources": len(scored), "pairs": len(pairs), "pair_mode": mode, "pairs_by_kind": kinds,
+    stats = {"sources": len(scored), "pairs": len(pairs), "sources_paired": paired, "pair_mode": mode,
+             "pairs_by_kind": kinds,
              "mean_reward": round(float(np.mean(all_rewards)), 4) if all_rewards else None,
              "mean_best_of_n": round(float(np.mean(best)), 4) if best else None,
              "samples_by_failed_gate": gate_fail}
     (run_dir / f"round_{k}" / "round_stats.json").write_text(json.dumps(stats, indent=1), encoding="utf-8")
     print(f"[round {k}] {json.dumps(stats)}", flush=True)
     return stats
+
+
+def _pair(pool: list[dict], kind: str, min_margin: float, rng: random.Random) -> list[tuple]:
+    """Best vs worst of ``pool``, or nothing when the best scored 0 or the gap is below the margin."""
+    hi, lo = max(s["reward"] for s in pool), min(s["reward"] for s in pool)
+    if hi <= 0 or hi - lo < min_margin:
+        return []
+    return [(rng.choice([s for s in pool if s["reward"] == hi]),
+             rng.choice([s for s in pool if s["reward"] == lo]), kind)]
+
+
+def _pairs_both(ok: list[dict], passing: list[dict], min_margin: float, rng: random.Random) -> list[tuple]:
+    if not passing:
+        return []
+    found = _pair(passing, "passing", min_margin, rng) if len(passing) >= 2 else []
+    failing = [s for s in ok if s["failed_gate"] is not None]
+    if failing:
+        # The detector pair's chosen when there is one, so both pairs agree on the best rewrite.
+        chosen = found[0][0] if found else rng.choice(
+            [s for s in passing if s["reward"] == max(p["reward"] for p in passing)])
+        nli = [s for s in failing if s["failed_gate"] == "nli"]
+        if chosen["reward"] >= min_margin:  # failing rewrites score 0
+            found.append((chosen, rng.choice(nli or failing), "gate"))
+    return found
 
 
 def stage_train(args, run_dir: Path, k: int, tb: RunLog) -> None:
@@ -298,7 +327,8 @@ def main() -> int:
     ap.add_argument("--min-margin", type=float, default=0.05, help="min chosen-rejected reward gap")
     ap.add_argument("--pairs", choices=PAIR_MODES, default="extremes",
                     help="extremes: best vs worst rewrite; passing: best vs worst of those that passed "
-                         "every gate (a detector-score pair), else extremes; passing-only: no fallback")
+                         "every gate (a detector-score pair), else extremes; passing-only: no fallback; "
+                         "both: the passing pair plus best passing vs a gate failure (NLI preferred)")
     ap.add_argument("--no-train-nli", dest="train_nli", action="store_false",
                     help="skip the NLI gate when scoring training samples (val always uses it)")
     ap.add_argument("--lr", type=float, default=2e-5)
