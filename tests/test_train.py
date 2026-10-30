@@ -37,6 +37,34 @@ def test_pairs_pick_best_and_worst_and_skip_useless_sources(tmp_path):
     assert stats["pairs"] == 2 and stats["samples_by_failed_gate"]["nli"] == 1
 
 
+def test_passing_pairs_compare_rewrites_that_passed_every_gate(tmp_path):
+    from deai.rollout import read_jsonl
+    rd = make_round(tmp_path, {
+        # two passing rewrites 0.3 apart in reward (detector score): a passing pair
+        "a": [sample("a-best", 0.7), sample("a-ok", 0.4), sample("a-nli", 0.0, "nli")],
+        # one passing rewrite: extremes in "passing", nothing in "passing-only"
+        "b": [sample("b-pass", 0.5), sample("b-nli", 0.0, "nli")],
+        # passing rewrites too close together; extremes would pair b-pass vs the gate failure
+        "c": [sample("c1", 0.50), sample("c2", 0.52), sample("c-len", 0.0, "length")],
+    })
+    by_mode = {}
+    for mode in ("extremes", "passing", "passing-only"):
+        stats = stage_pairs(SimpleNamespace(min_margin=0.05, pairs=mode), tmp_path, 1)
+        by_mode[mode] = ({p["id"]: (p["chosen"][0]["content"], p["rejected"][0]["content"], p["kind"])
+                          for p in read_jsonl(rd / "pairs.jsonl")}, stats)
+
+    pairs, stats = by_mode["extremes"]
+    assert pairs == {"a": ("a-best", "a-nli", "extremes"), "b": ("b-pass", "b-nli", "extremes"),
+                     "c": ("c2", "c-len", "extremes")}
+
+    pairs, stats = by_mode["passing"]
+    assert pairs == {"a": ("a-best", "a-ok", "passing"), "b": ("b-pass", "b-nli", "extremes")}
+    assert stats["pairs_by_kind"] == {"passing": 1, "extremes": 1} and stats["pair_mode"] == "passing"
+
+    pairs, _ = by_mode["passing-only"]
+    assert pairs == {"a": ("a-best", "a-ok", "passing")}
+
+
 def test_adapter_chain_is_ordered(tmp_path):
     assert adapters_up_to(tmp_path, 0) == []
     assert [p.parent.name for p in adapters_up_to(tmp_path, 3)] == ["round_1", "round_2", "round_3"]

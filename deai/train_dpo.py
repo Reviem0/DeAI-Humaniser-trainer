@@ -123,12 +123,23 @@ def stage_score(args, run_dir: Path, k: int, scorer: Scorer, tb: RunLog) -> None
               flush=True)
 
 
+# How stage_pairs picks a source's pair:
+#   extremes      best vs worst rewrite. The worst usually failed a gate (reward 0), so the
+#                 pairs mostly teach passing the gates (meaning, NLI) rather than evasion.
+#   passing       best vs worst of the rewrites that passed every gate, which differ only by
+#                 detector score; extremes for sources with fewer than two passing rewrites.
+#   passing-only  as passing, but no pair for sources with fewer than two passing rewrites.
+PAIR_MODES = ("extremes", "passing", "passing-only")
+
+
 def stage_pairs(args, run_dir: Path, k: int) -> dict:
     scored = read_jsonl(run_dir / f"round_{k}" / "scored.jsonl")
     sources = {r["id"]: r["source_text"] for r in read_jsonl(run_dir / f"round_{k}" / "samples.jsonl")}
+    mode = getattr(args, "pairs", "extremes")
     rng = random.Random(k)
     pairs, all_rewards, best = [], [], []
     gate_fail: dict[str, int] = {}
+    kinds = {"passing": 0, "extremes": 0}
     for r in scored:
         ok = [s for s in r["samples"] if s["reward"] is not None]  # None = detector failed
         for s in r["samples"]:
@@ -136,20 +147,28 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
             gate_fail[name] = gate_fail.get(name, 0) + 1
         if len(ok) < 2:
             continue
-        rewards = [s["reward"] for s in ok]
-        all_rewards += rewards
+        all_rewards += [s["reward"] for s in ok]
+        best.append(max(s["reward"] for s in ok))
+        passing = [s for s in ok if s["failed_gate"] is None]
+        if mode != "extremes" and len(passing) >= 2:
+            pool, kind = passing, "passing"
+        elif mode == "passing-only":
+            continue
+        else:
+            pool, kind = ok, "extremes"
+        rewards = [s["reward"] for s in pool]
         hi, lo = max(rewards), min(rewards)
-        best.append(hi)
         if hi <= 0 or hi - lo < args.min_margin:
             continue
-        chosen = rng.choice([s for s in ok if s["reward"] == hi])
-        rejected = rng.choice([s for s in ok if s["reward"] == lo])
+        chosen = rng.choice([s for s in pool if s["reward"] == hi])
+        rejected = rng.choice([s for s in pool if s["reward"] == lo])
+        kinds[kind] += 1
         pairs.append({"id": r["id"], "prompt": policy.messages(sources[r["id"]]),
                       "chosen": [{"role": "assistant", "content": chosen["text"]}],
                       "rejected": [{"role": "assistant", "content": rejected["text"]}],
-                      "chosen_reward": hi, "rejected_reward": lo})
+                      "chosen_reward": hi, "rejected_reward": lo, "kind": kind})
     write_jsonl(run_dir / f"round_{k}" / "pairs.jsonl", pairs)
-    stats = {"sources": len(scored), "pairs": len(pairs),
+    stats = {"sources": len(scored), "pairs": len(pairs), "pair_mode": mode, "pairs_by_kind": kinds,
              "mean_reward": round(float(np.mean(all_rewards)), 4) if all_rewards else None,
              "mean_best_of_n": round(float(np.mean(best)), 4) if best else None,
              "samples_by_failed_gate": gate_fail}
@@ -277,6 +296,9 @@ def main() -> int:
     ap.add_argument("--train-limit", type=int, default=None, help="train sources per round (default: all)")
     ap.add_argument("--eval-limit", type=int, default=None, help="val sources (default: all)")
     ap.add_argument("--min-margin", type=float, default=0.05, help="min chosen-rejected reward gap")
+    ap.add_argument("--pairs", choices=PAIR_MODES, default="extremes",
+                    help="extremes: best vs worst rewrite; passing: best vs worst of those that passed "
+                         "every gate (a detector-score pair), else extremes; passing-only: no fallback")
     ap.add_argument("--no-train-nli", dest="train_nli", action="store_false",
                     help="skip the NLI gate when scoring training samples (val always uses it)")
     ap.add_argument("--lr", type=float, default=2e-5)
@@ -307,7 +329,9 @@ def main() -> int:
     cfg = {**vars(args), "instruction": policy.INSTRUCTION, "detectors": BACKEND}
     if cfg_path.exists():
         old = json.loads(cfg_path.read_text(encoding="utf-8"))
-        for key in ("reward", "base", "n", "train_limit", "train_nli", "instruction", "detectors"):
+        # Runs from before --pairs existed used extremes.
+        old.setdefault("pairs", "extremes")
+        for key in ("reward", "base", "n", "train_limit", "train_nli", "instruction", "detectors", "pairs"):
             if old.get(key) != cfg[key]:
                 raise SystemExit(f"{run_dir} was started with {key}={old.get(key)!r}; "
                                  f"got {cfg[key]!r}. Use another --run name.")

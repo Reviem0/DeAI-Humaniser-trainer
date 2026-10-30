@@ -18,7 +18,9 @@
 # Resubmitting the same command resumes the run (finished stages are skipped). Submit one job per reward source.
 #
 # Settings for Qwen3.5-9B (~18 GB of bf16 weights, ~32 KB of KV cache per token):
-#   80 GB cards: --vram high (scorers stay loaded), --gen-batch 128, --batch-size 2
+#   80 GB cards: --vram high (scorers stay loaded), --gen-batch 192, --batch-size 4
+#                Measured at gen-batch 128 / batch-size 2: sampling peaks ~41 GB per worker,
+#                DPO training ~21 GB (the worker's "GPU 0 peak" line, not "train peak")
 #   40 GB cards: --vram medium, --gen-batch 32, --batch-size 1 (DPO peaks ~25 GB)
 # The effective batch stays 16 either way. These are estimates: check the per-stage
 # peaks in runs/dpo-<run>/train.log after a smoke run. None of them are pinned in
@@ -50,7 +52,7 @@ DEAI_ROUNDS="${DEAI_ROUNDS:-3}"
 
 GPU_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | sort -n | head -n1)
 if (( GPU_MB >= 70000 )); then
-    DEAI_VRAM="${DEAI_VRAM:-high}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-128}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-2}"
+    DEAI_VRAM="${DEAI_VRAM:-high}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-192}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-4}"
 else
     DEAI_VRAM="${DEAI_VRAM:-medium}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-32}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-1}"
 fi
