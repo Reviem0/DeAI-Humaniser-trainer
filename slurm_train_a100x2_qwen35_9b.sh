@@ -52,7 +52,7 @@ DEAI_ROUNDS="${DEAI_ROUNDS:-3}"
 
 GPU_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | sort -n | head -n1)
 if (( GPU_MB >= 70000 )); then
-    DEAI_VRAM="${DEAI_VRAM:-high}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-192}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-4}"
+    DEAI_VRAM="${DEAI_VRAM:-high}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-248}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-4}"
 else
     DEAI_VRAM="${DEAI_VRAM:-medium}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-32}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-1}"
 fi
