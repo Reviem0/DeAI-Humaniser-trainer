@@ -261,3 +261,46 @@ def test_nli_catches_one_changed_fact(reward, old, new):
     # Embedding similarity barely notices (~0.98); the NLI gate must.
     r = score_one(reward, PARAPHRASE.replace(old, new))
     assert r.failed_gate == "nli" and r.reward == 0.0, r.gates
+
+
+# A real reward hack: runs/dpo-r-stat-qwen3.5-9b round 5, val id ai-qa-stackexchange-0090
+# (first paragraph). The rewrite turns "your marriage is your priority" into "your marriage
+# remains her top priority", i.e. whose priority it is, and passed every gate
+# (NLI src->rw 1.000, rw->src 0.969). The rest of the rewrite is the policy's own text.
+ADVICE_SOURCE = (
+    "The core issue here isn’t whether you and your friend are “just friends”—it’s that your "
+    "wife feels something is off, and she needs reassurance that your marriage is your priority. "
+    "Trying to convince her with logic or repeated denials often backfires because it can come "
+    "across as dismissive of her feelings. Instead, shift your goal from winning the argument to "
+    "rebuilding trust and safety. Start by listening without defending. Ask her what specifically "
+    "bothers her: is it the amount of time you spend with your friend, the topics you share, "
+    "physical affection, private jokes, late-night texting, or something else? Let her finish "
+    "without interrupting or correcting her. Then reflect back what you heard: “So it worries you "
+    "when I text her late at night and don’t mention it.” That alone can lower the temperature, "
+    "because she feels seen rather than managed."
+)
+ADVICE_REWRITE = (
+    "The central problem isn't if you and your friend are merely pals—it's that your wife senses "
+    "something amiss and requires reassurance your marriage remains her top priority. Attempting "
+    "to sway her via logic or constant denials frequently rebounds since it risks seeming "
+    "dismissive of her emotions. Rather, pivot your aim from winning the debate to reconstructing "
+    "trust and safety. Begin by listening without defending yourself. Query her exactly what "
+    "disturbs her: is it time spent with your friend, shared topics, physical touch, private "
+    "jokes, late-night messaging, or another factor? Permit her to finish without interrupting or "
+    "correcting. Then mirror back what you grasped: \"So it worries you when I text her late and "
+    "omit mentioning it.\" That single act can cool the heat, as she feels witnessed instead of "
+    "managed."
+)
+SWAPPED = "your marriage remains her top priority"
+
+
+@pytest.mark.models
+def test_nli_catches_whose_priority_swap(reward):
+    assert SWAPPED in ADVICE_REWRITE
+    # Control: the same rewrite with only the pronoun fixed must pass, so a failure below
+    # is the swap and not the policy's other liberties ("merely pals", "witnessed").
+    fixed = score_one(reward, ADVICE_REWRITE.replace(SWAPPED, "your marriage remains your top priority"),
+                      ADVICE_SOURCE)
+    assert fixed.passed, fixed.gates
+    r = score_one(reward, ADVICE_REWRITE, ADVICE_SOURCE)
+    assert r.failed_gate == "nli" and r.reward == 0.0, r.gates

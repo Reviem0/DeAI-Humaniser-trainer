@@ -6,3 +6,4 @@ data/
 runs/
 .env
 hpc_env.sh
+runs.zip
