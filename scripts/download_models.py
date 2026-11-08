@@ -9,6 +9,8 @@ base model too.
     python scripts/download_models.py                    # download + offline check
     python scripts/download_models.py --base Qwen/Qwen2.5-1.5B-Instruct   # extra policy base
     python scripts/download_models.py --check            # offline check only (e.g. on a GPU node)
+    python scripts/download_models.py --mesmer           # also the --mesmer gate's model (bf16, 16 GB;
+                                                         # DEAI_MESMER_INT8=1 for the 8 GB int8 weights)
 
 The check runs in a fresh process with HF_HUB_OFFLINE=1 on the CPU: it scores a
 text with each detector engine and each quality model through deai's own loaders,
@@ -77,7 +79,20 @@ def download(repos: list[str]) -> int:
     return len(failed)
 
 
-def check(bases: list[str]) -> int:
+def download_mesmer() -> int:
+    from deai import reward
+    t0 = time.perf_counter()
+    try:
+        path = reward.mesmer_snapshot()
+    except Exception as e:
+        print(f"  FAIL {reward.MESMER_MODEL}: {type(e).__name__}: {e}", flush=True)
+        return 1
+    print(f"  ok   {reward.MESMER_MODEL} @ {reward.MESMER_REVISION[:7]} "
+          f"({'int8' if reward.mesmer_int8() else 'bf16'}, {time.perf_counter() - t0:.0f}s) -> {path}", flush=True)
+    return 0
+
+
+def check(bases: list[str], mesmer: bool = False) -> int:
     """Load everything with the hub offline, through the same code training uses."""
     assert os.environ.get("HF_HUB_OFFLINE") == "1", "run --check with HF_HUB_OFFLINE=1"
     from deai import policy
@@ -107,6 +122,10 @@ def check(bases: list[str]) -> int:
     run("acceptability", lambda: q.acceptability([CHECK_TEXT]))
     run("entailment", lambda: q.entailment([CHECK_TEXT], [CHECK_TEXT]))
     q.release()
+    if mesmer:
+        # Files only: the 9B model is too big to load on a login node's CPU.
+        from deai import reward
+        run(f"mesmer ({'int8' if reward.mesmer_int8() else 'bf16'} files)", reward.mesmer_snapshot)
 
     print("policy bases (tokenizer, config, weight files):")
     for base in dict.fromkeys([policy.BASE_MODEL, *bases]):
@@ -146,6 +165,8 @@ def main() -> int:
                     help="extra policy base model (repeatable; default base is always included)")
     ap.add_argument("--check", action="store_true", help="only check that everything loads offline")
     ap.add_argument("--no-check", action="store_true", help="download without the offline check")
+    ap.add_argument("--mesmer", action="store_true",
+                    help="also Mesmer AI Detector 9B, for train_dpo --mesmer (DEAI_MESMER_INT8=1: int8 weights)")
     args = ap.parse_args()
     if os.environ.get("DEAI_BASE"):
         args.base.append(os.environ["DEAI_BASE"])
@@ -154,11 +175,11 @@ def main() -> int:
     print(f"HF cache: {constants.HF_HUB_CACHE}")
 
     if args.check:
-        return 1 if check(args.base) else 0
+        return 1 if check(args.base, args.mesmer) else 0
 
     repos = model_repos(args.base)
     print(f"downloading {len(repos)} repos:")
-    if download(repos):
+    if download(repos) or (args.mesmer and download_mesmer()):
         return 1
     if args.no_check:
         return 0
@@ -166,7 +187,8 @@ def main() -> int:
     print("\noffline check (fresh process, HF_HUB_OFFLINE=1, CPU):")
     env = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1",
            "DEAI_DETECTOR_DEVICE": "cpu", "CUDA_VISIBLE_DEVICES": ""}
-    cmd = [sys.executable, __file__, "--check", *[a for b in args.base for a in ("--base", b)]]
+    cmd = [sys.executable, __file__, "--check", *[a for b in args.base for a in ("--base", b)],
+           *(["--mesmer"] if args.mesmer else [])]
     return subprocess.run(cmd, env=env).returncode
 
 

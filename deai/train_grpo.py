@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 from deai import consolelog, policy, vram
-from deai.reward import REWARD_SOURCES
+from deai.reward import MESMER_MODES, REWARD_SOURCES, RewardConfig
 from deai.rollout import Scorer, evaluate, load_sources, source_scores, write_jsonl
 from deai.tblog import RunLog
 from deai.detectors import BACKEND
@@ -85,6 +85,9 @@ def main() -> int:
     ap.add_argument("--max-steps", type=int, default=-1)
     ap.add_argument("--save-steps", type=int, default=50)
     ap.add_argument("--no-train-nli", dest="train_nli", action="store_false")
+    ap.add_argument("--mesmer", choices=MESMER_MODES, default="off",
+                    help="extra gate: Mesmer AI Detector 9B must not call the rewrite 'ai' (ai) "
+                         "or 'ai' / 'ai_edited' (any); stays on the GPU beside the policy")
     ap.add_argument("--train-limit", type=int, default=None)
     ap.add_argument("--eval-limit", type=int, default=None)
     ap.add_argument("--vram", choices=sorted(vram.MODES), default=vram.DEFAULT,
@@ -118,7 +121,7 @@ def main() -> int:
         # GRPO holds the policy, its generations and the scorers at once. An explicit
         # DEAI_DETECTOR_DEVICE wins; scores agree across devices to 0.001.
         os.environ.setdefault("DEAI_DETECTOR_DEVICE", "cpu")
-    scorer = Scorer(args.reward)
+    scorer = Scorer(args.reward, RewardConfig(mesmer=args.mesmer))
     print(f"VRAM mode {mode.name}: detectors on {os.environ.get('DEAI_DETECTOR_DEVICE', 'cuda')}", flush=True)
     train = load_sources("train", args.train_limit)
     ds = Dataset.from_list([{"prompt": policy.messages(r.text), "source": r.text, "id": r.id}

@@ -15,6 +15,7 @@ dependencies = [
     "pandas",
     "pyarrow",
     "tensorboard",
+    "emoji",  # Mesmer AI detector loader (--mesmer gate)
 ]
 
 [project.optional-dependencies]

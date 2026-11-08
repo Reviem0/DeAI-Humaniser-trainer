@@ -24,6 +24,12 @@ for rewrites that passed all of them:
   threshold calibrated on human passages (``scripts/calibrate_reward.py``).
   Perplexity is deliberately not used: low perplexity is what statistical
   detectors flag.
+- ``mesmer`` (optional, off by default): Mesmer AI Detector 9B (a Qwen3.5-9B
+  classifier, outside SlopTotal) must not flag the rewrite. ``ai`` fails only its
+  "ai" verdict; ``any`` also fails "ai_edited". The verdict uses the model's own
+  ``policy.json`` thresholds (<= 0.7% of human texts called AI, <= 1% flagged).
+  It runs last because it is by far the most expensive gate (~16 GB bf16, ~9 GB
+  int8), so it is meant for the HPC.
 
 Models load lazily and are injectable, so tests can swap in stubs.
 """
@@ -31,7 +37,9 @@ Models load lazily and are injectable, so tests can swap in stubs.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import math
+import os
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -47,6 +55,14 @@ COLA_MODEL = "cointegrated/roberta-large-cola-krishna2020"
 COLA_ACCEPTABLE = 0
 NLI_MODEL = "cross-encoder/nli-deberta-v3-base"
 NLI_ENTAILMENT = 1  # {0: contradiction, 1: entailment, 2: neutral}
+# CC BY-NC-SA 4.0. Pinned: its loader (mesmer_detector.py) is code from the repo.
+MESMER_MODEL = "mesmertech/mesmer-ai-detector-9b"
+MESMER_REVISION = "27483f365c703c8706a45a40355f55b8f93f7014"
+# off: no gate; ai: fail the "ai" verdict; any: fail "ai" and "ai_edited".
+MESMER_MODES = ("off", "ai", "any")
+# Mesmer's predict() reads only the first 1,023 tokens; longer rewrites go through
+# its windowed analyze() so their end can't hide AI text. ~1.3 tokens per word.
+MESMER_PREDICT_MAX_WORDS = 700
 
 
 @dataclass(frozen=True)
@@ -62,6 +78,7 @@ class RewardConfig:
     min_entailment: float = 0.9
     nli_sentence_threshold: float = 0.5
     use_nli: bool = False
+    mesmer: str = "off"  # one of MESMER_MODES
     chunk_words: int = 150  # mpnet's 384-token limit is ~250 words; leave margin
 
 
@@ -186,10 +203,17 @@ class QualityModels(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]: ...  # unit-normalised
     def acceptability(self, sentences: list[str]) -> list[float]: ...
     def entailment(self, premises: list[str], hypotheses: list[str]) -> list[float]: ...
+    # Only needed when the mesmer gate is on: (verdict, (p_human, p_ai, p_ai_edited)) per text.
+    def ai_verdicts(self, texts: list[str]) -> list[tuple[str, tuple[float, float, float]]]: ...
 
 
 class HFQualityModels:
-    """The real models, loaded on first use."""
+    """The real models, loaded on first use.
+
+    Mesmer is configured by environment, since it only runs on machines that fit it:
+    ``DEAI_MESMER_DEVICE`` (default: this object's device), ``DEAI_MESMER_INT8=1``
+    (8-bit weights, ~9 GB instead of ~16) and ``DEAI_MESMER_TOKENS_PER_BATCH``.
+    """
 
     def __init__(self, device: str | None = None, batch_size: int = 32):
         import torch
@@ -198,6 +222,7 @@ class HFQualityModels:
         self._embedder = None
         self._cola = None
         self._nli = None
+        self._mesmer = None
 
     def embed(self, texts):
         if self._embedder is None:
@@ -216,9 +241,23 @@ class HFQualityModels:
             self._nli = self._load_classifier(NLI_MODEL)
         return self._classify(self._nli, premises, hypotheses, NLI_ENTAILMENT)
 
+    def ai_verdicts(self, texts):
+        if self._mesmer is None:
+            self._mesmer = load_mesmer(os.environ.get("DEAI_MESMER_DEVICE") or self.device)
+        det = self._mesmer
+        out: list = [None] * len(texts)
+        short = [i for i, t in enumerate(texts) if word_count(t) <= MESMER_PREDICT_MAX_WORDS]
+        if short:
+            for i, p in zip(short, det.predict([texts[i] for i in short])):
+                out[i] = (det.verdict(p), tuple(float(x) for x in p))
+        for i in (i for i, o in enumerate(out) if o is None):
+            r = det.analyze(texts[i])
+            out[i] = (r["verdict"], tuple(float(r["probs"][k]) for k in ("human", "ai", "ai_edited")))
+        return out
+
     def release(self) -> None:
         """Drop the models and return their GPU memory; they reload on next use."""
-        self._embedder = self._cola = self._nli = None
+        self._embedder = self._cola = self._nli = self._mesmer = None
         import gc
 
         import torch
@@ -247,6 +286,31 @@ class HFQualityModels:
                 p = model(**enc.to(self.device)).logits.float().softmax(-1)[:, label]
             out.extend(p.tolist())
         return out
+
+
+def mesmer_int8() -> bool:
+    return os.environ.get("DEAI_MESMER_INT8", "").lower() in ("1", "true", "yes")
+
+
+def mesmer_snapshot(int8: bool | None = None) -> str:
+    """Local folder of Mesmer at the pinned revision (from the HF cache when offline)."""
+    from huggingface_hub import snapshot_download
+    int8 = mesmer_int8() if int8 is None else int8
+    weights = "int8/model.safetensors" if int8 else "model.safetensors"
+    return snapshot_download(MESMER_MODEL, revision=MESMER_REVISION,
+                             allow_patterns=["*.json", "mesmer_detector.py", weights])
+
+
+def load_mesmer(device: str | None = None):
+    """Mesmer's own ``Detector`` (from the repo's mesmer_detector.py) at the pinned revision."""
+    int8 = mesmer_int8()
+    path = mesmer_snapshot(int8)
+    spec = importlib.util.spec_from_file_location("mesmer_detector", os.path.join(path, "mesmer_detector.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    kw = {"tokens_per_batch": int(os.environ["DEAI_MESMER_TOKENS_PER_BATCH"])} \
+        if os.environ.get("DEAI_MESMER_TOKENS_PER_BATCH") else {}
+    return module.Detector.from_pretrained(path, int8=int8, device=device, **kw)
 
 
 # ----------------------------------------------------------------------
@@ -381,6 +445,15 @@ class Reward:
                                                           [rewrites[i] for i in idx])):
                 results[i].gates.append(Gate("nli", min(fwd, back) >= cfg.min_entailment,
                                              min(fwd, back), f"src->rw {fwd:.3f}, rw->src {back:.3f}"))
+
+        idx = alive()
+        if cfg.mesmer != "off" and idx:
+            if cfg.mesmer not in MESMER_MODES:
+                raise ValueError(f"mesmer must be one of {MESMER_MODES}, got {cfg.mesmer!r}")
+            flagged = ("ai",) if cfg.mesmer == "ai" else ("ai", "ai_edited")
+            for i, (verdict, (h, a, e)) in zip(idx, self.models.ai_verdicts([rewrites[i].strip() for i in idx])):
+                results[i].gates.append(Gate("mesmer", verdict not in flagged, h,
+                                             f"{verdict}: human {h:.3f}, ai {a:.3f}, ai_edited {e:.3f}"))
 
         for i in alive():
             results[i].reward = None

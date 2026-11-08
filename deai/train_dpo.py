@@ -30,7 +30,7 @@ import numpy as np
 
 from deai import consolelog, multigpu, policy, vram
 from deai.detectors import BACKEND
-from deai.reward import REWARD_SOURCES
+from deai.reward import MESMER_MODES, REWARD_SOURCES, RewardConfig
 from deai.tblog import RunLog
 from deai.rollout import (Scorer, load_sources, read_jsonl, result_row, score_eval,
                           source_scores, write_jsonl)
@@ -58,8 +58,8 @@ def _generate(state, **kwargs) -> list[list[policy.Sample]]:
     return policy.generate(model, tok, progress=False, **kwargs)
 
 
-def _load_scorer(reward: str) -> Scorer:
-    return Scorer(reward)
+def _load_scorer(reward: str, mesmer: str = "off") -> Scorer:
+    return Scorer(reward, RewardConfig(mesmer=mesmer))
 
 
 def _score(scorer: Scorer, rows: list[dict], use_nli: bool) -> list[dict]:
@@ -114,7 +114,7 @@ def stage_score(args, run_dir: Path, k: int, scorer: Scorer, tb: RunLog) -> None
     n = 0
     # On one GPU this process's scorer does the work; each extra GPU loads its own.
     for _, out in multigpu.imap("deai.train_dpo:_score", tasks, args.gpus,
-                                "deai.train_dpo:_load_scorer", (args.reward,), state=scorer):
+                                "deai.train_dpo:_load_scorer", (args.reward, args.mesmer), state=scorer):
         write_jsonl(path, out, mode="a")
         n += len(out)
         tb.log_scoring(k, (len(done) + n) * args.n, [s for r in out for s in r["samples"]])
@@ -331,6 +331,9 @@ def main() -> int:
                          "both: the passing pair plus best passing vs a gate failure (NLI preferred)")
     ap.add_argument("--no-train-nli", dest="train_nli", action="store_false",
                     help="skip the NLI gate when scoring training samples (val always uses it)")
+    ap.add_argument("--mesmer", choices=MESMER_MODES, default="off",
+                    help="extra gate on train and val: Mesmer AI Detector 9B must not call the rewrite "
+                         "'ai' (ai) or 'ai' / 'ai_edited' (any). ~16 GB bf16, ~9 GB with DEAI_MESMER_INT8=1")
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--beta", type=float, default=0.1)
     ap.add_argument("--loss-type", default="sigmoid", help="e.g. 'sigmoid,sft' for RPO-style regularisation")
@@ -361,7 +364,9 @@ def main() -> int:
         old = json.loads(cfg_path.read_text(encoding="utf-8"))
         # Runs from before --pairs existed used extremes.
         old.setdefault("pairs", "extremes")
-        for key in ("reward", "base", "n", "train_limit", "train_nli", "instruction", "detectors", "pairs"):
+        old.setdefault("mesmer", "off")  # and before --mesmer, off
+        for key in ("reward", "base", "n", "train_limit", "train_nli", "instruction", "detectors", "pairs",
+                    "mesmer"):
             if old.get(key) != cfg[key]:
                 raise SystemExit(f"{run_dir} was started with {key}={old.get(key)!r}; "
                                  f"got {cfg[key]!r}. Use another --run name.")
@@ -369,7 +374,7 @@ def main() -> int:
     consolelog.start(run_dir)
 
     endpoint = REWARD_SOURCES[args.reward][0]
-    scorer = Scorer(args.reward)
+    scorer = Scorer(args.reward, RewardConfig(mesmer=args.mesmer))
     val = load_sources("val", args.eval_limit)
     src_scores = source_scores(scorer, val, run_dir / "val_source_scores.json")
     print(f"run {run_dir.name}: reward {args.reward} ({endpoint}), base {args.base}, "

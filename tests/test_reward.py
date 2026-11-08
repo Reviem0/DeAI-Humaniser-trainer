@@ -304,3 +304,56 @@ def test_nli_catches_whose_priority_swap(reward):
     assert fixed.passed, fixed.gates
     r = score_one(reward, ADVICE_REWRITE, ADVICE_SOURCE)
     assert r.failed_gate == "nli" and r.reward == 0.0, r.gates
+
+
+# ----------------------------------------------------------------------
+# Mesmer gate (stubbed: the real model is 9B and runs on the HPC)
+# ----------------------------------------------------------------------
+
+class StubMesmer(PassAll):
+    """PassAll whose Mesmer returns a fixed verdict and records what it was asked."""
+    PROBS = {"human": (0.9, 0.05, 0.05), "ai": (0.05, 0.9, 0.05), "ai_edited": (0.05, 0.05, 0.9)}
+
+    def __init__(self, verdict):
+        self.verdict, self.calls = verdict, []
+
+    def ai_verdicts(self, texts):
+        self.calls.extend(texts)
+        return [(self.verdict, self.PROBS[self.verdict])] * len(texts)
+
+
+def test_mesmer_off_by_default_never_loads_it():
+    models = StubMesmer("ai")
+    r = asyncio.run(Reward(detector=AlwaysHuman(), models=models).score([SOURCE], [PARAPHRASE]))[0]
+    assert r.passed and r.reward == pytest.approx(1.0)
+    assert models.calls == []
+
+
+@pytest.mark.parametrize("mode, verdict, passed", [
+    ("ai", "human", True), ("ai", "ai_edited", True), ("ai", "ai", False),
+    ("any", "human", True), ("any", "ai_edited", False), ("any", "ai", False),
+])
+def test_mesmer_gate(mode, verdict, passed):
+    det = AlwaysHuman()
+    reward = Reward(detector=det, models=StubMesmer(verdict), config=RewardConfig(mesmer=mode))
+    r = asyncio.run(reward.score([SOURCE], [PARAPHRASE]))[0]
+    assert r.gate("mesmer").passed is passed and r.gate("mesmer").value == StubMesmer.PROBS[verdict][0]
+    assert verdict in r.gate("mesmer").detail
+    if passed:
+        assert r.reward == pytest.approx(1.0) and det.calls == [PARAPHRASE]
+    else:
+        assert r.failed_gate == "mesmer" and r.reward == 0.0 and det.calls == []
+
+
+def test_mesmer_runs_last_and_only_on_survivors():
+    models = StubMesmer("human")
+    reward = Reward(detector=AlwaysHuman(), models=models, config=RewardConfig(mesmer="any"))
+    res = reward.check_gates([SOURCE, SOURCE], [truncate(PARAPHRASE), PARAPHRASE])
+    assert res[0].failed_gate == "length" and res[0].gate("mesmer") is None
+    assert res[1].gates[-1].name == "mesmer" and models.calls == [PARAPHRASE]
+
+
+def test_unknown_mesmer_mode_is_refused():
+    reward = Reward(detector=AlwaysHuman(), models=StubMesmer("human"), config=RewardConfig(mesmer="on"))
+    with pytest.raises(ValueError):
+        reward.check_gates([SOURCE], [PARAPHRASE])
