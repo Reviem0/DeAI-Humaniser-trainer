@@ -3,8 +3,9 @@
 Each round k:
   1. sample  N rewrites per train source from the current policy  -> samples.jsonl
   2. score   every rewrite with the reward (gates incl. NLI, then detector) -> scored.jsonl
-  3. pairs   chosen = best, rejected = worst; skip sources whose best is 0
-  4. train   one DPO epoch of a fresh LoRA on top of the previous policy -> adapter/
+  3. pairs   chosen = best, rejected = worst (see --pairs); skip sources whose best is 0
+  4. train   one DPO (new runs: RPO) epoch of a fresh LoRA on top of the previous policy -> adapter/;
+             entropy / likelihood-displacement alarms                -> alarms.json
   5. eval    greedy rewrites of val, gates incl. NLI, detector     -> eval.jsonl, metrics.json
 
 The policy after round k is the base model plus adapters 1..k merged in order,
@@ -58,8 +59,10 @@ def _generate(state, **kwargs) -> list[list[policy.Sample]]:
     return policy.generate(model, tok, progress=False, **kwargs)
 
 
-def _load_scorer(reward: str, mesmer: str = "off") -> Scorer:
-    return Scorer(reward, RewardConfig(mesmer=mesmer))
+def _load_scorer(reward: str, mesmer: str = "off", lm_gates: bool = False,
+                 structure_gate: bool = False) -> Scorer:
+    return Scorer(reward, RewardConfig(mesmer=mesmer, use_lm_gates=lm_gates,
+                                       use_structure_gate=structure_gate))
 
 
 def _score(scorer: Scorer, rows: list[dict], use_nli: bool) -> list[dict]:
@@ -114,7 +117,8 @@ def stage_score(args, run_dir: Path, k: int, scorer: Scorer, tb: RunLog) -> None
     n = 0
     # On one GPU this process's scorer does the work; each extra GPU loads its own.
     for _, out in multigpu.imap("deai.train_dpo:_score", tasks, args.gpus,
-                                "deai.train_dpo:_load_scorer", (args.reward, args.mesmer), state=scorer):
+                                "deai.train_dpo:_load_scorer",
+                                (args.reward, args.mesmer, args.lm_gates, args.structure_gate), state=scorer):
         write_jsonl(path, out, mode="a")
         n += len(out)
         tb.log_scoring(k, (len(done) + n) * args.n, [s for r in out for s in r["samples"]])
@@ -133,16 +137,31 @@ def stage_score(args, run_dir: Path, k: int, scorer: Scorer, tb: RunLog) -> None
 #                 the passing pair, and the best passing rewrite vs one that failed a gate
 #                 (NLI if any did: the near-copies that lower the detector score by breaking
 #                 entailment). passing alone traded NLI for evasion (PLAN.md, Phase 4).
+# --reject-gates: when the rejected rewrite is a gate failure (both's gate pair, or a tie
+# at reward 0 in extremes), pick it from failures of these gates when there are any, so
+# DPO pushes away from broken meaning and fluency rather than from, say, a truncation.
 PAIR_MODES = ("extremes", "passing", "passing-only", "both")
+QUALITY_GATES = ("nli", "meaning", "fluency", "perplexity", "burstiness", "structure")
+
+
+def legacy_reject_gates(pair_mode: str) -> str:
+    """What runs from before --reject-gates did: both preferred NLI failures, the rest had no preference."""
+    return "nli" if pair_mode == "both" else "none"
+
+
+def _reject_pool(failing: list[dict], reject_gates: tuple[str, ...]) -> list[dict]:
+    return [s for s in failing if s["failed_gate"] in reject_gates] or failing
 
 
 def stage_pairs(args, run_dir: Path, k: int) -> dict:
     scored = read_jsonl(run_dir / f"round_{k}" / "scored.jsonl")
     sources = {r["id"]: r["source_text"] for r in read_jsonl(run_dir / f"round_{k}" / "samples.jsonl")}
     mode = getattr(args, "pairs", "extremes")
+    reject = _reject_gates(getattr(args, "reject_gates", None) or legacy_reject_gates(mode))
     rng = random.Random(k)
     pairs, all_rewards, best = [], [], []
     gate_fail: dict[str, int] = {}
+    rejected_gate: dict[str, int] = {}
     kinds = {"passing": 0, "extremes": 0, "gate": 0}
     paired = 0
     for r in scored:
@@ -156,16 +175,18 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
         best.append(max(s["reward"] for s in ok))
         passing = [s for s in ok if s["failed_gate"] is None]
         if mode == "both":
-            found = _pairs_both(ok, passing, args.min_margin, rng)
+            found = _pairs_both(ok, passing, args.min_margin, rng, reject)
         elif mode != "extremes" and len(passing) >= 2:
             found = _pair(passing, "passing", args.min_margin, rng)
         elif mode == "passing-only":
             found = []
         else:
-            found = _pair(ok, "extremes", args.min_margin, rng)
+            found = _pair(ok, "extremes", args.min_margin, rng, reject)
         paired += bool(found)
         for chosen, rejected, kind in found:
             kinds[kind] += 1
+            g = rejected["failed_gate"] or "passed"
+            rejected_gate[g] = rejected_gate.get(g, 0) + 1
             pairs.append({"id": r["id"], "prompt": policy.messages(sources[r["id"]]),
                           "chosen": [{"role": "assistant", "content": chosen["text"]}],
                           "rejected": [{"role": "assistant", "content": rejected["text"]}],
@@ -173,7 +194,7 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
                           "kind": kind})
     write_jsonl(run_dir / f"round_{k}" / "pairs.jsonl", pairs)
     stats = {"sources": len(scored), "pairs": len(pairs), "sources_paired": paired, "pair_mode": mode,
-             "pairs_by_kind": kinds,
+             "pairs_by_kind": kinds, "pairs_by_rejected_gate": rejected_gate,
              "mean_reward": round(float(np.mean(all_rewards)), 4) if all_rewards else None,
              "mean_best_of_n": round(float(np.mean(best)), 4) if best else None,
              "samples_by_failed_gate": gate_fail}
@@ -182,16 +203,32 @@ def stage_pairs(args, run_dir: Path, k: int) -> dict:
     return stats
 
 
-def _pair(pool: list[dict], kind: str, min_margin: float, rng: random.Random) -> list[tuple]:
-    """Best vs worst of ``pool``, or nothing when the best scored 0 or the gap is below the margin."""
+def _reject_gates(value: str) -> tuple[str, ...]:
+    """--reject-gates: comma-separated gate names; "none" for no preference."""
+    gates = tuple(g for g in value.split(",") if g and g != "none")
+    unknown = set(gates) - set(QUALITY_GATES)
+    if unknown:
+        raise SystemExit(f"--reject-gates: unknown gates {sorted(unknown)}; choose from {QUALITY_GATES}")
+    return gates
+
+
+def _pair(pool: list[dict], kind: str, min_margin: float, rng: random.Random,
+          reject: tuple[str, ...] = ()) -> list[tuple]:
+    """Best vs worst of ``pool``, or nothing when the best scored 0 or the gap is below the margin.
+
+    Among worst rewrites that tie (all gate failures score 0), failures of ``reject`` gates go first.
+    """
     hi, lo = max(s["reward"] for s in pool), min(s["reward"] for s in pool)
     if hi <= 0 or hi - lo < min_margin:
         return []
-    return [(rng.choice([s for s in pool if s["reward"] == hi]),
-             rng.choice([s for s in pool if s["reward"] == lo]), kind)]
+    worst = [s for s in pool if s["reward"] == lo]
+    if reject and lo == 0:
+        worst = _reject_pool(worst, reject)
+    return [(rng.choice([s for s in pool if s["reward"] == hi]), rng.choice(worst), kind)]
 
 
-def _pairs_both(ok: list[dict], passing: list[dict], min_margin: float, rng: random.Random) -> list[tuple]:
+def _pairs_both(ok: list[dict], passing: list[dict], min_margin: float, rng: random.Random,
+                reject: tuple[str, ...] = ("nli",)) -> list[tuple]:
     if not passing:
         return []
     found = _pair(passing, "passing", min_margin, rng) if len(passing) >= 2 else []
@@ -200,9 +237,8 @@ def _pairs_both(ok: list[dict], passing: list[dict], min_margin: float, rng: ran
         # The detector pair's chosen when there is one, so both pairs agree on the best rewrite.
         chosen = found[0][0] if found else rng.choice(
             [s for s in passing if s["reward"] == max(p["reward"] for p in passing)])
-        nli = [s for s in failing if s["failed_gate"] == "nli"]
         if chosen["reward"] >= min_margin:  # failing rewrites score 0
-            found.append((chosen, rng.choice(nli or failing), "gate"))
+            found.append((chosen, rng.choice(_reject_pool(failing, reject)), "gate"))
     return found
 
 
@@ -300,6 +336,71 @@ def stage_eval(args, run_dir: Path, k: int, scorer: Scorer, val, src_scores) -> 
 
 # ----------------------------------------------------------------------
 
+# New runs get RPO (DPO + NLL on the chosen rewrite): plain DPO let the chosen rewrites'
+# log-prob fall ~9 nats in R-full 4B round 1 (likelihood displacement, PLAN.md Phase 4).
+TRAIN_DEFAULTS = {"beta": 0.1, "loss_type": "sigmoid,sft", "sft_weight": 1.0}
+
+
+def resolve_resumed_args(args, old: dict | None) -> list[str]:
+    """Fill the flags whose default depends on whether the run is new; returns notes to print.
+
+    Training settings left unset keep a resumed run's own values, so new defaults never
+    change a run halfway; set explicitly, they apply to the rounds not trained yet.
+    ``reject_gates`` changes pairs, so it is pinned like the reward settings (see main).
+    """
+    notes = []
+    for key, default in TRAIN_DEFAULTS.items():
+        if getattr(args, key) is None:
+            setattr(args, key, old[key] if old and old.get(key) is not None else default)
+        elif old and old.get(key) is not None and old[key] != getattr(args, key):
+            notes.append(f"note: {key} {old[key]!r} -> {getattr(args, key)!r} for rounds not trained yet")
+    if args.reject_gates is None:
+        if old is None:
+            args.reject_gates = ",".join(QUALITY_GATES)
+        else:
+            args.reject_gates = old.get("reject_gates") or legacy_reject_gates(old.get("pairs", "extremes"))
+    return notes
+
+
+def train_alarms(run_dir: Path, k: int, beta: float, entropy_alarm: float,
+                 displacement_alarm: float) -> list[str]:
+    """Collapse warnings from round k's DPO log (TRL's per-token entropy and rewards/chosen).
+
+    Both use the second half of the round's logged steps. Entropy is compared with round
+    1's first logged value, i.e. the base policy on round 1's pairs. rewards/chosen / beta
+    is the chosen rewrites' log-prob change against the reference (the previous policy).
+    Writes round_k/alarms.json.
+    """
+    def steps(i: int) -> list[dict]:
+        p = run_dir / f"round_{i}" / "train_log.json"
+        log = json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
+        logged = [x for x in log if "loss" in x and "entropy" in x]
+        # Fewer steps than logging_steps: only the end-of-training summary has the metrics.
+        return logged or [x for x in log if "train_loss" in x and "entropy" in x and "rewards/chosen" in x]
+
+    cur = steps(k)
+    if not cur:
+        return []
+    tail = cur[len(cur) // 2:]
+    first = steps(1)
+    ref = first[0]["entropy"] if first else None
+    entropy = float(np.mean([x["entropy"] for x in tail]))
+    chosen = float(np.mean([x["rewards/chosen"] for x in tail])) / beta
+    alarms = []
+    if ref and entropy < entropy_alarm * ref:
+        alarms.append(f"entropy {entropy:.3f} is {entropy / ref:.0%} of round 1's {ref:.3f} "
+                      f"(alarm below {entropy_alarm:.0%}): the policy may be collapsing")
+    if chosen < -displacement_alarm:
+        alarms.append(f"chosen log-prob {chosen:+.1f} nats/sequence vs the reference (alarm below "
+                      f"-{displacement_alarm:g}): likelihood displacement; try --loss-type sigmoid,sft")
+    out = {"entropy": round(entropy, 4), "entropy_ref": ref, "chosen_logp_change": round(chosen, 2),
+           "alarms": alarms}
+    (run_dir / f"round_{k}" / "alarms.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    for a in alarms:
+        print(f"[round {k}] ALARM: {a}", flush=True)
+    return alarms
+
+
 def print_summary(run_dir: Path, rounds: int) -> None:
     keys = ["pass_all_gates", "mean_reward", "source_detector_mean", "rewrite_detector_mean",
             "rewrite_detector_mean_passing", "rewrite_below_likely_ai", "evasion_and_quality",
@@ -328,7 +429,11 @@ def main() -> int:
     ap.add_argument("--pairs", choices=PAIR_MODES, default="extremes",
                     help="extremes: best vs worst rewrite; passing: best vs worst of those that passed "
                          "every gate (a detector-score pair), else extremes; passing-only: no fallback; "
-                         "both: the passing pair plus best passing vs a gate failure (NLI preferred)")
+                         "both: the passing pair plus best passing vs a gate failure (see --reject-gates)")
+    ap.add_argument("--reject-gates", default=None,
+                    help="comma-separated gates whose failures are preferred as the rejected rewrite of a gate "
+                         f"pair (both) or a reward-0 tie (extremes), or 'none'. Default for new runs: "
+                         f"{','.join(QUALITY_GATES)}; runs started before it keep nli (both) / none")
     ap.add_argument("--no-train-nli", dest="train_nli", action="store_false",
                     help="skip the NLI gate when scoring training samples (val always uses it)")
     ap.add_argument("--mesmer", choices=MESMER_MODES, default="off",
@@ -336,10 +441,29 @@ def main() -> int:
                          "or 'ai' / 'ai_edited' (any). soft: scale the reward by its log p(human) instead; "
                          "adaptive: soft, plus the 'ai' gate for sources where some rewrite got past it. "
                          "~16 GB bf16, ~9 GB with DEAI_MESMER_INT8=1")
+    ap.add_argument("--lm-gates", action="store_true",
+                    help="perplexity and burstiness upper-bound gates (SmolLM2-360M, human 98th percentile) "
+                         "on train and val: block inflating surprise to fool the statistical engines")
+    ap.add_argument("--structure-gate", action="store_true",
+                    help="structure gate on train and val: semicolons, clause joiners and the longest sentence "
+                         "within the human 99th percentile (or the source's), paragraphs within 0.5-2x the source's")
     ap.add_argument("--lr", type=float, default=2e-5)
-    ap.add_argument("--beta", type=float, default=0.1)
-    ap.add_argument("--loss-type", default="sigmoid", help="e.g. 'sigmoid,sft' for RPO-style regularisation")
-    ap.add_argument("--sft-weight", type=float, default=0.2, help="weight of extra loss types")
+    ap.add_argument("--beta", type=float, default=None,
+                    help=f"DPO beta (default {TRAIN_DEFAULTS['beta']}; a resumed run keeps its own)")
+    ap.add_argument("--loss-type", default=None,
+                    help=f"default {TRAIN_DEFAULTS['loss_type']!r}: DPO plus an NLL term on the chosen rewrite "
+                         "(RPO), against likelihood displacement; 'sigmoid' is plain DPO. A resumed run keeps its own")
+    ap.add_argument("--sft-weight", type=float, default=None,
+                    help=f"weight of extra loss types (default {TRAIN_DEFAULTS['sft_weight']}, RPO's alpha; "
+                         "TRL's sft term is the per-token mean NLL)")
+    ap.add_argument("--entropy-alarm", type=float, default=0.7,
+                    help="alarm when a round's DPO policy entropy (second half of its steps) falls below this "
+                         "share of round 1's first logged entropy (the base policy's)")
+    ap.add_argument("--displacement-alarm", type=float, default=5.0,
+                    help="alarm when the chosen rewrites' log-prob falls this many nats per sequence below the "
+                         "reference (rewards/chosen / beta, second half of the round's steps)")
+    ap.add_argument("--halt-on-alarm", action="store_true",
+                    help="stop after the eval of a round that raised an alarm, instead of only warning")
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--batch-size", type=int, default=1, help="pairs per step; 1 fits a 4B policy in 16 GB")
     ap.add_argument("--effective-batch", type=int, default=16)
@@ -359,24 +483,30 @@ def main() -> int:
     run_dir = RUNS / f"dpo-{args.run}"
     run_dir.mkdir(parents=True, exist_ok=True)
     cfg_path = run_dir / "config.json"
+    old = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else None
+    notes = resolve_resumed_args(args, old)
+    _reject_gates(args.reject_gates)  # validate before anything runs
     # "detectors": runs scored by the SlopTotal server have no such key, so they can't be
     # resumed and silently mix its scores (failed engines read as 0.0) with in-process ones.
     cfg = {**vars(args), "instruction": policy.INSTRUCTION, "detectors": BACKEND}
-    if cfg_path.exists():
-        old = json.loads(cfg_path.read_text(encoding="utf-8"))
+    if old is not None:
         # Runs from before --pairs existed used extremes.
         old.setdefault("pairs", "extremes")
         old.setdefault("mesmer", "off")  # and before --mesmer, off
+        old.setdefault("lm_gates", False)  # and before --lm-gates, off
+        old.setdefault("structure_gate", False)  # and before --structure-gate, off
         for key in ("reward", "base", "n", "train_limit", "train_nli", "instruction", "detectors", "pairs",
-                    "mesmer"):
+                    "mesmer", "lm_gates", "structure_gate", "reject_gates"):
             if old.get(key) != cfg[key]:
                 raise SystemExit(f"{run_dir} was started with {key}={old.get(key)!r}; "
                                  f"got {cfg[key]!r}. Use another --run name.")
     cfg_path.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
     consolelog.start(run_dir)
+    for note in notes:
+        print(note, flush=True)
 
     endpoint = REWARD_SOURCES[args.reward][0]
-    scorer = Scorer(args.reward, RewardConfig(mesmer=args.mesmer))
+    scorer = _load_scorer(args.reward, args.mesmer, args.lm_gates, args.structure_gate)
     val = load_sources("val", args.eval_limit)
     src_scores = source_scores(scorer, val, run_dir / "val_source_scores.json")
     print(f"run {run_dir.name}: reward {args.reward} ({endpoint}), base {args.base}, "
@@ -409,6 +539,7 @@ def main() -> int:
             # A different sample of sources each round when --train-limit is set.
             train = load_sources("train", args.train_limit, seed=k)
             last = k == args.rounds
+            alarms: list[str] = []
             for stage in STAGES:
                 if mode.swap_scorers and stage in ("sample", "train", "eval"):
                     scorer.release()  # the policy needs the GPU memory the scorers hold
@@ -418,8 +549,10 @@ def main() -> int:
                     stage_score(args, run_dir, k, scorer, tb)
                 elif stage == "pairs":
                     stage_pairs(args, run_dir, k)
-                elif stage == "train" and not (run_dir / f"round_{k}" / "adapter").exists():
-                    stage_train(args, run_dir, k, tb)
+                elif stage == "train":
+                    if not (run_dir / f"round_{k}" / "adapter").exists():
+                        stage_train(args, run_dir, k, tb)
+                    alarms = train_alarms(run_dir, k, args.beta, args.entropy_alarm, args.displacement_alarm)
                 elif stage == "eval":
                     stage_eval(args, run_dir, k, scorer, val, src_scores)
                 if stage != "pairs":
@@ -429,6 +562,10 @@ def main() -> int:
                     print(f"stopped after {stage}")
                     return 0
             print_summary(run_dir, k)
+            if alarms and args.halt_on_alarm and not last:
+                print(f"halted after round {k} on alarm (--halt-on-alarm); see round_{k}/alarms.json "
+                      "and spotcheck.md. Rerun the same command to continue anyway.", flush=True)
+                return 3
     finally:
         tb.close()
     return 0

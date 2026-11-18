@@ -42,7 +42,7 @@ def model_repos(bases: list[str]) -> list[str]:
     from deai import policy, reward
     from deai.detectors import neural, statistical
     repos = [policy.BASE_MODEL, *bases, reward.EMBED_MODEL, reward.COLA_MODEL, reward.NLI_MODEL,
-             statistical.GPT2_MODEL, statistical.DISTIL_MODEL]
+             reward.LM_MODEL, statistical.GPT2_MODEL, statistical.DISTIL_MODEL]
     for cls in neural.ENGINE_CLASSES:
         repos.append(cls.model_name)
         if hasattr(cls, "base_name"):

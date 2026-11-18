@@ -10,6 +10,13 @@ for rewrites that passed all of them:
   diacritic tricks).
 - ``length``: 0.8-1.2x the source's word count and >= 80 words, so the detectors'
   short-text shrinkage toward neutral can't be used.
+- ``structure`` (optional, ``use_structure_gate``): the rewrite keeps the source's
+  layout. Semicolons and clause joiners (; : — –) per 100 words, and the longest
+  sentence, stay within the human 99th percentile or the source's own value,
+  whichever is higher; the paragraph count stays within half to double the
+  source's (+3). Blocks stitching sentences together with semicolons and merging
+  paragraphs, which starves the sentence-level and structural engines (a
+  round 7 rewrite turned 6 paragraphs into 1 with 14 semicolons, PLAN.md).
 - ``meaning``: cosine similarity of all-mpnet-base-v2 passage embeddings >= 0.85.
   mpnet truncates at 384 tokens, so passages are embedded in sentence-aligned
   chunks and mean-pooled; otherwise the second half of a rewrite would go unseen.
@@ -22,8 +29,18 @@ for rewrites that passed all of them:
   negative (Phase 4 zero-shot rewrites, see PLAN.md).
 - ``fluency``: mean P(acceptable) per sentence from a CoLA classifier, above a
   threshold calibrated on human passages (``scripts/calibrate_reward.py``).
-  Perplexity is deliberately not used: low perplexity is what statistical
-  detectors flag.
+  Perplexity is deliberately not used for this: low perplexity is what
+  statistical detectors flag, so a perplexity floor would be a detector.
+- ``perplexity`` and ``burstiness`` (optional, ``use_lm_gates``): upper bounds
+  only, set at a high quantile of human passages. Perplexity is the rewrite's
+  per-token perplexity, and burstiness is the coefficient of variation of its
+  sentence perplexities, both under an LM independent of the detectors' GPT-2
+  (``LM_MODEL``). They block the opposite shortcut: inflating surprise with
+  rare or unidiomatic words, or a few deliberately odd sentences, which the
+  statistical engines read as human and CoLA doesn't catch. There is no lower
+  bound. Texts with fewer than ``min_burstiness_sentences`` scorable sentences
+  pass the burstiness gate unmeasured, and since a sample CV of n values is at
+  most sqrt(n), the default bound (2.51) can only fail texts of 7+ sentences.
 - ``mesmer`` (optional, off by default): Mesmer AI Detector 9B (a Qwen3.5-9B
   classifier, outside SlopTotal) must not flag the rewrite. ``ai`` fails only its
   "ai" verdict; ``any`` also fails "ai_edited". The verdict uses the model's own
@@ -70,6 +87,11 @@ COLA_MODEL = "cointegrated/roberta-large-cola-krishna2020"
 COLA_ACCEPTABLE = 0
 NLI_MODEL = "cross-encoder/nli-deberta-v3-base"
 NLI_ENTAILMENT = 1  # {0: contradiction, 1: entailment, 2: neutral}
+# The perplexity/burstiness gates' LM: neither GPT-2 (the statistical engines', which
+# stay held-out detectors) nor Qwen (the policy's family). Apache 2.0, 8k context.
+LM_MODEL = "HuggingFaceTB/SmolLM2-360M"
+LM_MAX_TOKENS = 2048  # passages are <= 600 words, ~800 tokens
+LM_BATCH = 8  # logits are batch x tokens x 49k vocab
 # CC BY-NC-SA 4.0. Pinned: its loader (mesmer_detector.py) is code from the repo.
 MESMER_MODEL = "mesmertech/mesmer-ai-detector-9b"
 MESMER_REVISION = "27483f365c703c8706a45a40355f55b8f93f7014"
@@ -95,6 +117,22 @@ class RewardConfig:
     min_entailment: float = 0.9
     nli_sentence_threshold: float = 0.5
     use_nli: bool = False
+    # Perplexity / burstiness upper bounds (LM_MODEL), at the 98th percentile of
+    # train+val human passages (scripts/calibrate_reward.py); see PLAN.md.
+    use_lm_gates: bool = False
+    max_perplexity: float = 39.5
+    max_burstiness: float = 2.51
+    min_burstiness_sentences: int = 4
+    min_sentence_tokens: int = 4
+    # Structure: human 99th percentiles (train+val, scripts/calibrate_reward.py), each
+    # raised to the source's own value when the source is higher.
+    use_structure_gate: bool = False
+    max_semicolons: float = 1.8  # per 100 words
+    max_joiners: float = 3.3  # ; : — – per 100 words
+    max_sentence_words: int = 105
+    min_paragraph_ratio: float = 0.5  # of the source's paragraphs, rounded up
+    max_paragraph_ratio: float = 2.0  # or the source's + max_extra_paragraphs if higher
+    max_extra_paragraphs: int = 3
     mesmer: str = "off"  # one of MESMER_MODES
     # soft mode: share of the reward Mesmer controls, and the p_human at which its
     # term bottoms out (log scale from there up to p_human = 1).
@@ -126,6 +164,90 @@ def split_sentences(text: str) -> list[str]:
     for para in re.split(r"\n\s*\n|\n", text):
         out.extend(s.strip() for s in _SENT_END.split(para) if s.strip())
     return out
+
+
+def paragraphs(text: str) -> list[str]:
+    """Non-empty lines (split_sentences' paragraph split)."""
+    return [p.strip() for p in re.split(r"\n\s*\n|\n", text) if p.strip()]
+
+
+JOINERS = ";:—–"
+
+
+@dataclass(frozen=True)
+class Structure:
+    semicolons: float  # per 100 words
+    joiners: float  # ; : — – per 100 words
+    longest_sentence: int  # words
+    paragraphs: int
+
+
+def structure(text: str) -> Structure:
+    words = max(word_count(text), 1)
+    sents = split_sentences(text) or [text]
+    return Structure(100 * text.count(";") / words, 100 * sum(text.count(c) for c in JOINERS) / words,
+                     max(word_count(s) for s in sents), len(paragraphs(text)) or 1)
+
+
+def structure_problems(rewrite: str, source: str, cfg: "RewardConfig") -> list[str]:
+    """Reasons the rewrite fails the structure gate (empty = passes)."""
+    rw, src = structure(rewrite), structure(source)
+    problems = []
+    if rw.semicolons > max(cfg.max_semicolons, src.semicolons):
+        problems.append(f"{rw.semicolons:.2f} semicolons/100 words (source {src.semicolons:.2f})")
+    if rw.joiners > max(cfg.max_joiners, src.joiners):
+        problems.append(f"{rw.joiners:.2f} ;:—– per 100 words (source {src.joiners:.2f})")
+    if rw.longest_sentence > max(cfg.max_sentence_words, src.longest_sentence):
+        problems.append(f"{rw.longest_sentence}-word sentence (source {src.longest_sentence})")
+    lo = math.ceil(cfg.min_paragraph_ratio * src.paragraphs)
+    hi = max(math.floor(cfg.max_paragraph_ratio * src.paragraphs), src.paragraphs + cfg.max_extra_paragraphs)
+    if not lo <= rw.paragraphs <= hi:
+        problems.append(f"{rw.paragraphs} paragraphs (source {src.paragraphs}, allowed {lo}-{hi})")
+    return problems
+
+
+def sentence_spans(text: str) -> list[tuple[int, int]]:
+    """Character spans of ``split_sentences(text)`` in ``text``."""
+    spans, pos = [], 0
+    for s in split_sentences(text):
+        start = text.find(s, pos)
+        if start < 0:  # can't happen (sentences are stripped substrings, in order)
+            continue
+        spans.append((start, start + len(s)))
+        pos = start + len(s)
+    return spans
+
+
+@dataclass(frozen=True)
+class LMStats:
+    perplexity: float
+    burstiness: float | None  # None: fewer than min_sentences scorable sentences
+    sentence_perplexities: list[float]
+
+
+def lm_stats(text: str, nll: Sequence[float], spans: Sequence[tuple[int, int]],
+             min_sentence_tokens: int = 4, min_sentences: int = 4) -> LMStats:
+    """Perplexity and burstiness from per-token NLLs (nats) and their character spans.
+
+    A token belongs to the sentence its last character falls in, so a token that
+    carries the space before a sentence counts for that sentence; whitespace
+    tokens between sentences count for none. Burstiness is the sample-stdev CV of
+    the per-sentence perplexities of sentences with >= ``min_sentence_tokens``.
+    """
+    if not len(nll):
+        return LMStats(math.inf, None, [])
+    nll = np.asarray(nll, dtype=np.float64)
+    ppl = float(math.exp(nll.mean()))
+    ends = np.array([e for _, e in spans])
+    pps = []
+    for s0, s1 in sentence_spans(text):
+        sel = nll[(ends > s0) & (ends <= s1)]
+        if len(sel) >= min_sentence_tokens:
+            pps.append(float(math.exp(sel.mean())))
+    burst = None
+    if len(pps) >= max(min_sentences, 2):
+        burst = float(np.std(pps, ddof=1) / np.mean(pps))
+    return LMStats(ppl, burst, pps)
 
 
 def chunk_sentences(sentences: list[str], max_words: int) -> list[str]:
@@ -234,6 +356,9 @@ class QualityModels(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]: ...  # unit-normalised
     def acceptability(self, sentences: list[str]) -> list[float]: ...
     def entailment(self, premises: list[str], hypotheses: list[str]) -> list[float]: ...
+    # Only needed with use_lm_gates: per text, the NLL (nats) of each token given its
+    # prefix (the first after a BOS) and each token's (start, end) characters in the text.
+    def token_nll(self, texts: list[str]) -> list[tuple[list[float], list[tuple[int, int]]]]: ...
     # Only needed when mesmer is on: (verdict, (p_human, p_ai, p_ai_edited)) per text.
     def ai_verdicts(self, texts: list[str]) -> list[tuple[str, tuple[float, float, float]]]: ...
 
@@ -253,6 +378,7 @@ class HFQualityModels:
         self._embedder = None
         self._cola = None
         self._nli = None
+        self._lm = None
         self._mesmer = None
 
     def embed(self, texts):
@@ -272,6 +398,39 @@ class HFQualityModels:
             self._nli = self._load_classifier(NLI_MODEL)
         return self._classify(self._nli, premises, hypotheses, NLI_ENTAILMENT)
 
+    def token_nll(self, texts):
+        import torch
+        import torch.nn.functional as F
+        if self._lm is None:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            tok = AutoTokenizer.from_pretrained(LM_MODEL)
+            dtype = torch.bfloat16 if self.device.startswith("cuda") else torch.float32
+            model = AutoModelForCausalLM.from_pretrained(LM_MODEL, dtype=dtype)
+            self._lm = tok, model.to(self.device).eval()
+        tok, model = self._lm
+        bos = tok.bos_token_id if tok.bos_token_id is not None else tok.eos_token_id
+        pad = tok.pad_token_id if tok.pad_token_id is not None else bos
+        enc = [tok(t, add_special_tokens=False, return_offsets_mapping=True, truncation=True,
+                   max_length=LM_MAX_TOKENS - 1) for t in texts]
+        out = []
+        for i in range(0, len(enc), LM_BATCH):
+            batch = [[bos, *e["input_ids"]] for e in enc[i:i + LM_BATCH]]
+            width = max(len(b) for b in batch)
+            ids = torch.full((len(batch), width), pad, dtype=torch.long)
+            mask = torch.zeros_like(ids)
+            for j, b in enumerate(batch):
+                ids[j, :len(b)] = torch.tensor(b)
+                mask[j, :len(b)] = 1
+            ids, mask = ids.to(self.device), mask.to(self.device)
+            with torch.no_grad():
+                logits = model(input_ids=ids, attention_mask=mask).logits
+                for j, (b, e) in enumerate(zip(batch, enc[i:i + LM_BATCH])):
+                    n = len(b) - 1
+                    nll = F.cross_entropy(logits[j, :n].float(), ids[j, 1:n + 1], reduction="none")
+                    out.append((nll.tolist(), [tuple(o) for o in e["offset_mapping"]]))
+            del logits
+        return out
+
     def ai_verdicts(self, texts):
         if self._mesmer is None:
             self._mesmer = load_mesmer(os.environ.get("DEAI_MESMER_DEVICE") or self.device)
@@ -288,7 +447,7 @@ class HFQualityModels:
 
     def release(self) -> None:
         """Drop the models and return their GPU memory; they reload on next use."""
-        self._embedder = self._cola = self._nli = self._mesmer = None
+        self._embedder = self._cola = self._nli = self._lm = self._mesmer = None
         import gc
 
         import torch
@@ -478,6 +637,9 @@ class Reward:
             ratio = n_rw / n_src if n_src else math.inf
             ok = cfg.min_ratio <= ratio <= cfg.max_ratio and n_rw >= cfg.min_words
             results[i].gates.append(Gate("length", ok, ratio, f"{n_rw} words vs {n_src}"))
+            if ok and cfg.use_structure_gate:
+                problems = structure_problems(rw, src, cfg)
+                results[i].gates.append(Gate("structure", not problems, detail="; ".join(problems)))
 
         idx = alive()
         if idx:
@@ -490,6 +652,18 @@ class Reward:
         if idx:
             for i, f in zip(idx, self.fluency([rewrites[i] for i in idx])):
                 results[i].gates.append(Gate("fluency", f >= cfg.min_fluency, f))
+
+        idx = alive()
+        if cfg.use_lm_gates and idx:
+            for i, st in zip(idx, self.lm_stats([rewrites[i] for i in idx])):
+                g = results[i].gates
+                g.append(Gate("perplexity", st.perplexity <= cfg.max_perplexity, st.perplexity,
+                              f"max {cfg.max_perplexity:g}"))
+                if g[-1].passed:
+                    b = st.burstiness
+                    g.append(Gate("burstiness", b is None or b <= cfg.max_burstiness, b,
+                                  f"{len(st.sentence_perplexities)} sentences, max {cfg.max_burstiness:g}"
+                                  + (" (too few to measure)" if b is None else "")))
 
         idx = alive()
         if use_nli and idx:
@@ -528,6 +702,12 @@ class Reward:
         probs = self.models.acceptability([s for ss in sents for s in ss])
         bounds = np.cumsum([0] + [len(ss) for ss in sents])
         return [float(np.mean(probs[s:e])) for s, e in zip(bounds[:-1], bounds[1:])]
+
+    def lm_stats(self, texts: Sequence[str]) -> list[LMStats]:
+        """Perplexity and burstiness of each text under ``LM_MODEL``."""
+        cfg = self.config
+        return [lm_stats(t, nll, spans, cfg.min_sentence_tokens, cfg.min_burstiness_sentences)
+                for t, (nll, spans) in zip(texts, self.models.token_nll(list(texts)))]
 
     def entailment(self, sources: Sequence[str], rewrites: Sequence[str]) -> list[tuple[float, float]]:
         """(source entails rewrite, rewrite entails source) per pair: share of entailed sentences."""

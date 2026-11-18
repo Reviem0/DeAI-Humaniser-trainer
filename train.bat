@@ -69,6 +69,10 @@ if defined DEAI_EFFECTIVE_BATCH set "ARGS=%ARGS% --effective-batch %DEAI_EFFECTI
 if defined DEAI_VRAM set "ARGS=%ARGS% --vram %DEAI_VRAM%"
 if defined DEAI_GPUS set "ARGS=%ARGS% --gpus %DEAI_GPUS%"
 if defined DEAI_MESMER set "ARGS=%ARGS% --mesmer %DEAI_MESMER%"
+if "%DEAI_LM_GATES%"=="1" set "ARGS=%ARGS% --lm-gates"
+if "%DEAI_STRUCTURE_GATE%"=="1" set "ARGS=%ARGS% --structure-gate"
+if defined DEAI_REJECT_GATES set "ARGS=%ARGS% --reject-gates %DEAI_REJECT_GATES%"
+if "%DEAI_HALT_ON_ALARM%"=="1" set "ARGS=%ARGS% --halt-on-alarm"
 if defined DEAI_EXTRA_ARGS set "ARGS=%ARGS% %DEAI_EXTRA_ARGS%"
 set "PYTHONIOENCODING=utf-8"
 echo.

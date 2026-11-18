@@ -90,6 +90,10 @@ def main() -> int:
                          "'ai_edited' (any). soft: scale the reward by its log p(human); adaptive: soft, plus "
                          "the 'ai' gate within a prompt's group once one completion gets past it. "
                          "Stays on the GPU beside the policy")
+    ap.add_argument("--lm-gates", action="store_true",
+                    help="perplexity and burstiness upper-bound gates (SmolLM2-360M, human 98th percentile)")
+    ap.add_argument("--structure-gate", action="store_true",
+                    help="semicolon / clause-joiner / sentence-length / paragraph-count gate (see deai.reward)")
     ap.add_argument("--train-limit", type=int, default=None)
     ap.add_argument("--eval-limit", type=int, default=None)
     ap.add_argument("--vram", choices=sorted(vram.MODES), default=vram.DEFAULT,
@@ -123,7 +127,8 @@ def main() -> int:
         # GRPO holds the policy, its generations and the scorers at once. An explicit
         # DEAI_DETECTOR_DEVICE wins; scores agree across devices to 0.001.
         os.environ.setdefault("DEAI_DETECTOR_DEVICE", "cpu")
-    scorer = Scorer(args.reward, RewardConfig(mesmer=args.mesmer))
+    scorer = Scorer(args.reward, RewardConfig(mesmer=args.mesmer, use_lm_gates=args.lm_gates,
+                                              use_structure_gate=args.structure_gate))
     print(f"VRAM mode {mode.name}: detectors on {os.environ.get('DEAI_DETECTOR_DEVICE', 'cuda')}", flush=True)
     train = load_sources("train", args.train_limit)
     ds = Dataset.from_list([{"prompt": policy.messages(r.text), "source": r.text, "id": r.id}

@@ -90,6 +90,10 @@ opt DEAI_EFFECTIVE_BATCH --effective-batch
 opt DEAI_VRAM --vram
 opt DEAI_GPUS --gpus
 opt DEAI_MESMER --mesmer
+[[ "${DEAI_LM_GATES:-}" == 1 ]] && args+=(--lm-gates)
+[[ "${DEAI_STRUCTURE_GATE:-}" == 1 ]] && args+=(--structure-gate)
+opt DEAI_REJECT_GATES --reject-gates
+[[ "${DEAI_HALT_ON_ALARM:-}" == 1 ]] && args+=(--halt-on-alarm)
 read -ra extra <<< "${DEAI_EXTRA_ARGS:-}"
 args+=("${extra[@]}")
 

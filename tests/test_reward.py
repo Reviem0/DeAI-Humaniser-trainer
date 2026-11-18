@@ -7,11 +7,14 @@ that gets through the gates would earn the maximum reward.
 """
 
 import asyncio
+import math
 import random
+import re
 
+import numpy as np
 import pytest
 
-from deai.reward import (Reward, RewardConfig, chunk_sentences, mesmer_factor, split_sentences,
+from deai.reward import (Reward, RewardConfig, chunk_sentences, lm_stats, mesmer_factor, split_sentences,
                          unicode_problems, word_count)
 
 SOURCE = (
@@ -421,3 +424,162 @@ def test_unknown_mesmer_mode_is_refused():
     reward = Reward(detector=AlwaysHuman(), models=StubMesmer("human"), config=RewardConfig(mesmer="on"))
     with pytest.raises(ValueError):
         reward.check_gates([SOURCE], [PARAPHRASE])
+
+
+# ----------------------------------------------------------------------
+# Perplexity / burstiness gates (stub LM: one token per word, NLL by word)
+# ----------------------------------------------------------------------
+
+class StubLM(PassAll):
+    """PassAll whose LM gives each whitespace word one token, with NLL ``nll(word)``."""
+
+    def __init__(self, nll=lambda w: 2.0):
+        self.nll, self.calls = nll, []
+
+    def token_nll(self, texts):
+        self.calls.extend(texts)
+        out = []
+        for t in texts:
+            spans = [m.span() for m in re.finditer(r"\S+", t)]
+            out.append(([self.nll(t[a:b]) for a, b in spans], spans))
+        return out
+
+
+def test_lm_stats_assigns_tokens_to_sentences():
+    text = "One two three four. Five six seven eight. A b c d. W x y z."
+    nll, spans = StubLM(lambda w: 1.0 if w[0].isupper() or w[0] in "otfs" else 3.0).token_nll([text])[0]
+    st = lm_stats(text, nll, spans)
+    assert len(st.sentence_perplexities) == 4
+    assert st.perplexity == pytest.approx(math.exp(np.mean(nll)))
+    pps = st.sentence_perplexities
+    assert st.burstiness == pytest.approx(np.std(pps, ddof=1) / np.mean(pps))
+    # Leading whitespace tokens count for the sentence they end in, not the previous one.
+    spaced = [(a - 1, b) if a else (a, b) for a, b in spans]
+    assert lm_stats(text, nll, spaced).sentence_perplexities == pps
+
+
+def test_lm_stats_too_few_sentences_leaves_burstiness_unmeasured():
+    text = "One two three four five. Six seven eight nine ten."
+    assert lm_stats(text, *StubLM().token_nll([text])[0]).burstiness is None
+    # Sentences under min_sentence_tokens don't count.
+    text = "One two three four. Five. Six. Seven. Eight."
+    assert len(lm_stats(text, *StubLM().token_nll([text])[0]).sentence_perplexities) == 1
+
+
+def test_lm_gates_off_by_default_never_load_the_lm():
+    models = StubLM(lambda w: 50.0)
+    r = asyncio.run(Reward(detector=AlwaysHuman(), models=models).score([SOURCE], [PARAPHRASE]))[0]
+    assert r.passed and r.gate("perplexity") is None and models.calls == []
+
+
+def test_ordinary_text_passes_lm_gates():
+    reward = Reward(detector=AlwaysHuman(), models=StubLM(), config=RewardConfig(use_lm_gates=True))
+    r = asyncio.run(reward.score([SOURCE], [PARAPHRASE]))[0]
+    assert r.passed and r.reward == pytest.approx(1.0)
+    assert r.gate("perplexity").value == pytest.approx(math.exp(2.0))
+    assert r.gate("burstiness").value == pytest.approx(0.0)
+
+
+def test_inflated_perplexity_fails_and_skips_the_detector():
+    det = AlwaysHuman()
+    reward = Reward(detector=det, models=StubLM(lambda w: 5.0), config=RewardConfig(use_lm_gates=True))
+    r = asyncio.run(reward.score([SOURCE], [PARAPHRASE]))[0]
+    assert r.failed_gate == "perplexity" and r.reward == 0.0 and det.calls == []
+    assert r.gate("burstiness") is None  # gates stop at the first failure
+
+
+def test_one_planted_odd_sentence_fails_burstiness():
+    # Mean perplexity stays human-range; one sentence of rare words makes it bursty.
+    # 12 sentences: a sample CV can't exceed sqrt(n), so short texts can't fail this gate.
+    text = PARAPHRASE + " " + UNRELATED
+    odd_sentence = "We spent one whole summer trying to rebuild it from memory."
+    others = set(text.replace(odd_sentence, "").split())
+    odd = set(odd_sentence.split()) - others
+    assert len(odd) >= 5
+    reward = Reward(detector=AlwaysHuman(), models=StubLM(lambda w: 8.0 if w in odd else 1.5),
+                    config=RewardConfig(use_lm_gates=True))
+    r = reward.check_gates([text], [text])[0]
+    assert r.gate("perplexity").passed, r.gates
+    assert r.failed_gate == "burstiness" and r.reward == 0.0, r.gates
+
+
+def test_burstiness_unmeasured_passes():
+    text = " ".join(SOURCE.split()).replace(". ", "; ")  # one long sentence
+    reward = Reward(detector=AlwaysHuman(), models=StubLM(), config=RewardConfig(use_lm_gates=True))
+    r = reward.check_gates([SOURCE], [text])[0]
+    assert r.passed and r.gate("burstiness").value is None and "too few" in r.gate("burstiness").detail
+
+
+def test_lm_gates_run_after_fluency_and_before_nli():
+    models = StubLM()
+    models.entailment = lambda p, h: [1.0] * len(p)
+    reward = Reward(detector=AlwaysHuman(), models=models, config=RewardConfig(use_lm_gates=True, use_nli=True))
+    r = reward.check_gates([SOURCE], [PARAPHRASE])[0]
+    names = [g.name for g in r.gates]
+    assert names.index("fluency") < names.index("perplexity") < names.index("burstiness") < names.index("nli")
+
+
+@pytest.mark.models
+def test_real_lm_gates(reward):
+    lm = Reward(detector=AlwaysHuman(), models=reward.models, config=RewardConfig(use_lm_gates=True))
+    st = lm.lm_stats([PARAPHRASE, UNRELATED, shuffled(SOURCE)])
+    cfg = lm.config
+    for s in st[:2]:  # a faithful paraphrase and real human text sit inside the human range
+        assert s.perplexity <= cfg.max_perplexity and s.burstiness <= cfg.max_burstiness, s
+    assert st[2].perplexity > cfg.max_perplexity  # word salad is far outside it
+
+
+# ----------------------------------------------------------------------
+# Structure gate (no models)
+# ----------------------------------------------------------------------
+
+def _paras(text, n):
+    sents = split_sentences(text)
+    k = -(-len(sents) // n)
+    return "\n\n".join(" ".join(sents[i:i + k]) for i in range(0, len(sents), k))
+
+
+def structure_only(source, rewrite, **cfg):
+    return Reward(detector=AlwaysHuman(), models=PassAll(),
+                  config=RewardConfig(use_structure_gate=True, **cfg)).check_gates([source], [rewrite])[0]
+
+
+def test_structure_gate_off_by_default():
+    r = Reward(detector=AlwaysHuman(), models=PassAll()).check_gates([SOURCE], [PARAPHRASE.replace(". ", "; ")])[0]
+    assert r.passed and r.gate("structure") is None
+
+
+def test_identity_and_paraphrase_pass_structure():
+    src = _paras(SOURCE, 3)
+    assert structure_only(src, src).gate("structure").passed
+    assert structure_only(src, _paras(PARAPHRASE, 3)).gate("structure").passed
+
+
+def test_semicolon_stitching_and_merged_paragraphs_fail_structure():
+    # The round 7 shortcut: sentences joined with semicolons, paragraphs merged into one.
+    src = _paras(SOURCE, 3)
+    r = structure_only(src, PARAPHRASE.replace(". ", "; "))
+    assert r.failed_gate == "structure" and r.reward == 0.0
+    detail = r.gate("structure").detail
+    assert "semicolons" in detail and "1 paragraphs" in detail
+    # Each rule on its own.
+    assert "semicolons" in structure_only(SOURCE, PARAPHRASE.replace(". ", "; ", 3)).gate("structure").detail
+    assert "paragraphs" in structure_only(src, PARAPHRASE).gate("structure").detail
+    one_per_sentence = "\n\n".join(split_sentences(PARAPHRASE))
+    assert "paragraphs" in structure_only(SOURCE, one_per_sentence, max_extra_paragraphs=2).gate("structure").detail
+    long = structure_only(SOURCE, PARAPHRASE, max_sentence_words=20)
+    assert "-word sentence" in long.gate("structure").detail
+
+
+def test_structure_bounds_rise_to_the_sources_own():
+    src = SOURCE.replace(". ", "; ", 3)  # a source that already uses semicolons
+    assert structure_only(src, src).gate("structure").passed
+    assert not structure_only(SOURCE, src).gate("structure").passed
+
+
+def test_structure_runs_after_length_and_before_meaning():
+    r = structure_only(SOURCE, truncate(PARAPHRASE))
+    assert r.failed_gate == "length" and r.gate("structure") is None
+    r = Reward(detector=AlwaysHuman(), models=NoModels(),
+               config=RewardConfig(use_structure_gate=True)).check_gates([SOURCE], [PARAPHRASE.replace(". ", "; ")])[0]
+    assert r.failed_gate == "structure"  # NoModels would raise if meaning ran

@@ -185,3 +185,90 @@ def test_stage_train_saves_adapter_after_callbacks_close(tmp_path, monkeypatch):
 def test_max_new_tokens_covers_the_length_gate():
     src = "word " * 500
     assert policy.max_new_tokens(src) >= 500 * 1.2 * 1.3
+
+
+# ----------------------------------------------------------------------
+# --reject-gates, resumed settings, alarms
+# ----------------------------------------------------------------------
+
+def _pairs(tmp_path, scored, **args):
+    from deai.rollout import read_jsonl
+    rd = make_round(tmp_path, scored)
+    stats = stage_pairs(SimpleNamespace(min_margin=0.05, **args), tmp_path, 1)
+    return sorted((p["id"], p["chosen"][0]["content"], p["rejected"][0]["content"], p["kind"])
+                  for p in read_jsonl(rd / "pairs.jsonl")), stats
+
+
+def test_reject_gates_prefer_quality_failures_in_both_and_extremes(tmp_path):
+    scored = {"a": [sample("a-pass", 0.6), sample("a-len", 0.0, "length"), sample("a-flu", 0.0, "fluency"),
+                    sample("a-len2", 0.0, "length"), sample("a-fin", 0.0, "finished")]}
+    for mode in ("both", "extremes"):
+        pairs, stats = _pairs(tmp_path, scored, pairs=mode, reject_gates="nli,meaning,fluency")
+        assert [p[2] for p in pairs] == ["a-flu"], mode
+        assert stats["pairs_by_rejected_gate"] == {"fluency": 1}
+    # No preferred failure: any failure will do.
+    pairs, _ = _pairs(tmp_path, {"a": [sample("a-pass", 0.6), sample("a-len", 0.0, "length")]},
+                      pairs="both", reject_gates="meaning")
+    assert pairs == [("a", "a-pass", "a-len", "gate")]
+
+
+def test_reject_gates_never_pick_a_failure_over_a_lower_passing_rewrite(tmp_path):
+    # extremes only prefers among reward-0 ties; a passing worst rewrite stays the rejected one.
+    pairs, _ = _pairs(tmp_path, {"a": [sample("a-best", 0.6), sample("a-low", 0.1)]},
+                      pairs="extremes", reject_gates="fluency")
+    assert pairs == [("a", "a-best", "a-low", "extremes")]
+
+
+def test_unknown_reject_gate_is_refused(tmp_path):
+    import pytest
+    with pytest.raises(SystemExit):
+        _pairs(tmp_path, {"a": [sample("a", 0.5)]}, pairs="both", reject_gates="nli,vibes")
+
+
+def _args(**kw):
+    base = dict(beta=None, loss_type=None, sft_weight=None, reject_gates=None)
+    return SimpleNamespace(**{**base, **kw})
+
+
+def test_new_runs_get_rpo_and_quality_reject_gates():
+    from deai.train_dpo import QUALITY_GATES, TRAIN_DEFAULTS, resolve_resumed_args
+    args = _args()
+    assert resolve_resumed_args(args, None) == []
+    assert (args.beta, args.loss_type, args.sft_weight) == tuple(TRAIN_DEFAULTS.values())
+    assert args.loss_type == "sigmoid,sft" and args.reject_gates == ",".join(QUALITY_GATES)
+
+
+def test_resumed_runs_keep_their_own_settings():
+    from deai.train_dpo import resolve_resumed_args
+    old = {"beta": 0.1, "loss_type": "sigmoid", "sft_weight": 0.2, "pairs": "both"}
+    args = _args()
+    resolve_resumed_args(args, old)
+    assert (args.loss_type, args.sft_weight, args.reject_gates) == ("sigmoid", 0.2, "nli")
+    args = _args()
+    resolve_resumed_args(args, {**old, "pairs": "extremes"})
+    assert args.reject_gates == "none"
+    # Set explicitly, a training setting changes for the remaining rounds, with a note.
+    args = _args(beta=0.3)
+    notes = resolve_resumed_args(args, old)
+    assert args.beta == 0.3 and len(notes) == 1 and "beta" in notes[0]
+
+
+def _train_log(tmp_path, k, rows):
+    import json
+    d = tmp_path / f"round_{k}"
+    d.mkdir(parents=True, exist_ok=True)
+    log = [{"loss": 0.69, "step": 5 * (i + 1), "entropy": e, "rewards/chosen": c} for i, (e, c) in enumerate(rows)]
+    (d / "train_log.json").write_text(json.dumps(log + [{"train_runtime": 1.0, "entropy": 0.0}]))
+
+
+def test_alarms_on_entropy_collapse_and_likelihood_displacement(tmp_path):
+    import json
+    from deai.train_dpo import train_alarms
+    _train_log(tmp_path, 1, [(0.20, 0.0), (0.20, -0.1), (0.19, -0.2), (0.19, -0.3)])
+    assert train_alarms(tmp_path, 1, 0.1, 0.7, 5.0) == []  # -0.25 / 0.1 = -2.5 nats: fine
+    _train_log(tmp_path, 2, [(0.18, 0.0), (0.15, -0.3), (0.12, -0.8), (0.11, -1.0)])
+    alarms = train_alarms(tmp_path, 2, 0.1, 0.7, 5.0)
+    assert len(alarms) == 2 and "entropy" in alarms[0] and "displacement" in alarms[1]
+    saved = json.loads((tmp_path / "round_2" / "alarms.json").read_text())
+    assert saved["entropy_ref"] == 0.20 and saved["chosen_logp_change"] == -9.0
+    assert train_alarms(tmp_path, 3, 0.1, 0.7, 5.0) == []  # no log yet
