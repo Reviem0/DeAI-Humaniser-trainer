@@ -332,8 +332,10 @@ def main() -> int:
     ap.add_argument("--no-train-nli", dest="train_nli", action="store_false",
                     help="skip the NLI gate when scoring training samples (val always uses it)")
     ap.add_argument("--mesmer", choices=MESMER_MODES, default="off",
-                    help="extra gate on train and val: Mesmer AI Detector 9B must not call the rewrite "
-                         "'ai' (ai) or 'ai' / 'ai_edited' (any). ~16 GB bf16, ~9 GB with DEAI_MESMER_INT8=1")
+                    help="Mesmer AI Detector 9B on train and val. Gate: must not call the rewrite 'ai' (ai) "
+                         "or 'ai' / 'ai_edited' (any). soft: scale the reward by its log p(human) instead; "
+                         "adaptive: soft, plus the 'ai' gate for sources where some rewrite got past it. "
+                         "~16 GB bf16, ~9 GB with DEAI_MESMER_INT8=1")
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--beta", type=float, default=0.1)
     ap.add_argument("--loss-type", default="sigmoid", help="e.g. 'sigmoid,sft' for RPO-style regularisation")

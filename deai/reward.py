@@ -31,6 +31,21 @@ for rewrites that passed all of them:
   It runs last because it is by far the most expensive gate (~16 GB bf16, ~9 GB
   int8), so it is meant for the HPC.
 
+``mesmer="soft"`` uses Mesmer as a reward term instead of a gate: it scores the
+rewrites that passed every gate (beside the detector), and multiplies their
+reward by ``mesmer_factor(p_human)``. As a gate Mesmer failed every base-model
+rewrite (all "ai", PLAN.md Phase 4), which leaves DPO no pairs; the factor is on
+a log scale so moving p_human from 1e-4 to 1e-3 already counts, and it never
+goes below ``1 - mesmer_weight`` so the detector still ranks rewrites Mesmer
+calls equally AI.
+
+``mesmer="adaptive"`` is soft, plus the ``ai`` gate within a source once any of
+its rewrites (among those that passed the other gates) gets a verdict other than
+"ai": then that source's "ai" rewrites score 0. Rewrites of the same source are
+recognised by identical source text, so a rewrite's reward depends on its
+siblings in the same ``score()`` call; with one rewrite per source (validation)
+it is just soft.
+
 Models load lazily and are injectable, so tests can swap in stubs.
 """
 
@@ -58,8 +73,10 @@ NLI_ENTAILMENT = 1  # {0: contradiction, 1: entailment, 2: neutral}
 # CC BY-NC-SA 4.0. Pinned: its loader (mesmer_detector.py) is code from the repo.
 MESMER_MODEL = "mesmertech/mesmer-ai-detector-9b"
 MESMER_REVISION = "27483f365c703c8706a45a40355f55b8f93f7014"
-# off: no gate; ai: fail the "ai" verdict; any: fail "ai" and "ai_edited".
-MESMER_MODES = ("off", "ai", "any")
+# off: no gate; ai: fail the "ai" verdict; any: fail "ai" and "ai_edited";
+# soft: no gate, the reward is scaled by mesmer_factor(p_human); adaptive: soft, plus the
+# "ai" gate among a source's rewrites once any of them gets a verdict other than "ai".
+MESMER_MODES = ("off", "ai", "any", "soft", "adaptive")
 # Mesmer's predict() reads only the first 1,023 tokens; longer rewrites go through
 # its windowed analyze() so their end can't hide AI text. ~1.3 tokens per word.
 MESMER_PREDICT_MAX_WORDS = 700
@@ -79,7 +96,18 @@ class RewardConfig:
     nli_sentence_threshold: float = 0.5
     use_nli: bool = False
     mesmer: str = "off"  # one of MESMER_MODES
+    # soft mode: share of the reward Mesmer controls, and the p_human at which its
+    # term bottoms out (log scale from there up to p_human = 1).
+    mesmer_weight: float = 0.5
+    mesmer_floor: float = 1e-6
     chunk_words: int = 150  # mpnet's 384-token limit is ~250 words; leave margin
+
+
+def mesmer_factor(p_human: float, weight: float = 0.5, floor: float = 1e-6) -> float:
+    """Reward multiplier in [1 - weight, 1]: ``1 - weight`` at p_human <= floor, 1 at
+    p_human = 1, linear in log(p_human) between (each decade adds the same amount)."""
+    m = math.log(max(p_human, floor) / floor) / math.log(1 / floor)
+    return 1 - weight + weight * min(1.0, m)
 
 
 # ----------------------------------------------------------------------
@@ -182,6 +210,9 @@ class RewardResult:
     similarity: float | None = None
     detector_score: float | None = None  # 0-100
     error: str | None = None
+    # mesmer="soft": Mesmer's verdict and (p_human, p_ai, p_ai_edited), for rewrites that passed
+    mesmer_verdict: str | None = None
+    mesmer_probs: tuple[float, float, float] | None = None
 
     @property
     def passed(self) -> bool:
@@ -203,7 +234,7 @@ class QualityModels(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]: ...  # unit-normalised
     def acceptability(self, sentences: list[str]) -> list[float]: ...
     def entailment(self, premises: list[str], hypotheses: list[str]) -> list[float]: ...
-    # Only needed when the mesmer gate is on: (verdict, (p_human, p_ai, p_ai_edited)) per text.
+    # Only needed when mesmer is on: (verdict, (p_human, p_ai, p_ai_edited)) per text.
     def ai_verdicts(self, texts: list[str]) -> list[tuple[str, tuple[float, float, float]]]: ...
 
 
@@ -392,8 +423,25 @@ class Reward:
             return results
         if self.detector is None:
             raise RuntimeError("Reward has no detector; use check_gates() for gates only")
+        cfg = self.config
+        if cfg.mesmer in ("soft", "adaptive"):
+            for i, (verdict, probs) in zip(todo, self.models.ai_verdicts([rewrites[i].strip() for i in todo])):
+                results[i].mesmer_verdict, results[i].mesmer_probs = verdict, tuple(probs)
+        if cfg.mesmer == "adaptive":
+            # Gate within each source's rewrites once at least one of them gets past Mesmer.
+            clean = {sources[i] for i in todo if results[i].mesmer_verdict != "ai"}
+            for i in todo:
+                if sources[i] in clean:
+                    r = results[i]
+                    h, a, e = r.mesmer_probs
+                    r.gates.append(Gate("mesmer", r.mesmer_verdict != "ai", h,
+                                        f"{r.mesmer_verdict}: human {h:.3f}, ai {a:.3f}, ai_edited {e:.3f}"))
+                    if not r.passed:
+                        r.reward = 0.0  # a gate failure, not a detector failure (None)
+            todo = [i for i in todo if results[i].passed]
+        texts = [rewrites[i].strip() for i in todo]
         try:
-            scores = await self.detector([rewrites[i].strip() for i in todo])
+            scores = await self.detector(texts)
         except (DetectorError, TextRejected) as e:
             scores = [e] * len(todo)
         for i, s in zip(todo, scores):
@@ -403,6 +451,8 @@ class Reward:
                 continue
             r.detector_score = float(s)
             r.reward = (1 - r.detector_score / 100) * r.similarity
+            if r.mesmer_probs is not None:
+                r.reward *= mesmer_factor(r.mesmer_probs[0], cfg.mesmer_weight, cfg.mesmer_floor)
         return results
 
     def check_gates(self, sources: Sequence[str], rewrites: Sequence[str],
@@ -411,6 +461,8 @@ class Reward:
         if len(sources) != len(rewrites):
             raise ValueError("sources and rewrites differ in length")
         cfg = self.config
+        if cfg.mesmer not in MESMER_MODES:
+            raise ValueError(f"mesmer must be one of {MESMER_MODES}, got {cfg.mesmer!r}")
         use_nli = cfg.use_nli if use_nli is None else use_nli
         results = [RewardResult(reward=0.0) for _ in rewrites]
 
@@ -447,9 +499,7 @@ class Reward:
                                              min(fwd, back), f"src->rw {fwd:.3f}, rw->src {back:.3f}"))
 
         idx = alive()
-        if cfg.mesmer != "off" and idx:
-            if cfg.mesmer not in MESMER_MODES:
-                raise ValueError(f"mesmer must be one of {MESMER_MODES}, got {cfg.mesmer!r}")
+        if cfg.mesmer in ("ai", "any") and idx:
             flagged = ("ai",) if cfg.mesmer == "ai" else ("ai", "ai_edited")
             for i, (verdict, (h, a, e)) in zip(idx, self.models.ai_verdicts([rewrites[i].strip() for i in idx])):
                 results[i].gates.append(Gate("mesmer", verdict not in flagged, h,

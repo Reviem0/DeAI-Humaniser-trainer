@@ -55,6 +55,9 @@ def result_row(r: RewardResult) -> dict:
         "detector": r.detector_score,
         "gates": {g.name: {"passed": g.passed, "value": g.value, "detail": g.detail} for g in r.gates},
         "error": r.error,
+        # --mesmer soft/adaptive: Mesmer on rewrites that passed the other gates
+        "mesmer": None if r.mesmer_probs is None else
+        {"verdict": r.mesmer_verdict, **dict(zip(("human", "ai", "ai_edited"), r.mesmer_probs))},
     }
 
 
@@ -157,6 +160,7 @@ def summarize_eval(rows: list[dict]) -> dict:
     det = df.rewrite_detector.dropna()
     det_pass = df.loc[df.passed, "rewrite_detector"].dropna()
     src = df.source_detector.dropna()
+    mesmer = [m for m in df.get("mesmer", pd.Series(dtype=object)) if isinstance(m, dict)]
     return {
         "n": len(df),
         "pass_all_gates": round(float(df.passed.mean()), 3),
@@ -175,6 +179,11 @@ def summarize_eval(rows: list[dict]) -> dict:
         "evasion_and_quality": round(float((df.passed & (df.rewrite_detector < LIKELY_AI)).mean()), 3),
         "similarity_mean": round(float(df.similarity.dropna().mean()), 4) if df.similarity.notna().any() else None,
         "length_ratio_median": round(float((df.words / df.source_words).median()), 3),
+        # --mesmer soft/adaptive, over rewrites that passed the other gates: share Mesmer
+        # doesn't call "ai", and the median p_human (log-scale reward term).
+        **({"mesmer_scored": len(mesmer),
+            "mesmer_not_ai": round(float(np.mean([m["verdict"] != "ai" for m in mesmer])), 3),
+            "mesmer_human_median": float(np.median([m["human"] for m in mesmer]))} if mesmer else {}),
     }
 
 
@@ -186,6 +195,9 @@ def write_spotcheck(rows: list[dict], path: Path, n: int = 30, seed: int = 0) ->
         gates = ", ".join(f"{k} {'ok' if v['passed'] else 'FAIL'}"
                           + (f" {v['value']:.3f}" if isinstance(v["value"], float) else "")
                           for k, v in r["gates"].items())
+        m = r.get("mesmer")
+        if m:
+            gates += f"; mesmer {m['verdict']} (human {m['human']:.2e})"
         lines += [f"## {r['id']} ({r['model']})",
                   f"detector {r['source_detector']} -> {r['rewrite_detector']}; reward {r['reward']}; {gates}\n",
                   "**Source**\n", r["source_text"], "\n**Rewrite**\n", r["rewrite"], "\n---\n"]

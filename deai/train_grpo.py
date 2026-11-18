@@ -86,8 +86,10 @@ def main() -> int:
     ap.add_argument("--save-steps", type=int, default=50)
     ap.add_argument("--no-train-nli", dest="train_nli", action="store_false")
     ap.add_argument("--mesmer", choices=MESMER_MODES, default="off",
-                    help="extra gate: Mesmer AI Detector 9B must not call the rewrite 'ai' (ai) "
-                         "or 'ai' / 'ai_edited' (any); stays on the GPU beside the policy")
+                    help="Mesmer AI Detector 9B. Gate: must not call the rewrite 'ai' (ai) or 'ai' / "
+                         "'ai_edited' (any). soft: scale the reward by its log p(human); adaptive: soft, plus "
+                         "the 'ai' gate within a prompt's group once one completion gets past it. "
+                         "Stays on the GPU beside the policy")
     ap.add_argument("--train-limit", type=int, default=None)
     ap.add_argument("--eval-limit", type=int, default=None)
     ap.add_argument("--vram", choices=sorted(vram.MODES), default=vram.DEFAULT,

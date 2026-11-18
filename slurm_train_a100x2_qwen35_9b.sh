@@ -18,7 +18,9 @@
 # Resubmitting the same command resumes the run (finished stages are skipped). Submit one job per reward source.
 #
 # Settings for Qwen3.5-9B (~18 GB of bf16 weights, ~32 KB of KV cache per token):
-#   80 GB cards: --vram high (scorers stay loaded), --gen-batch 192, --batch-size 4
+#   80 GB cards: --vram high for quick / neural-quick (scorers stay loaded), medium for
+#                neural / stat / full (their scorers don't fit beside sampling), --gen-batch 248,
+#                --batch-size 4
 #                Measured at gen-batch 128 / batch-size 2: sampling peaks ~41 GB per worker,
 #                DPO training ~21 GB (the worker's "GPU 0 peak" line, not "train peak")
 #   40 GB cards: --vram medium, --gen-batch 32, --batch-size 1 (DPO peaks ~25 GB)
@@ -52,7 +54,14 @@ DEAI_ROUNDS="${DEAI_ROUNDS:-3}"
 
 GPU_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | sort -n | head -n1)
 if (( GPU_MB >= 70000 )); then
-    DEAI_VRAM="${DEAI_VRAM:-high}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-248}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-4}"
+    # high keeps the scorers on GPU 0 beside a sampling worker. The quick-endpoint rewards
+    # (quick, neural-quick) load 4 engines (~4 GB); the analyze ones (neural, stat, full) load
+    # far more (neural held ~27 GB) and ran GPU 0 out of memory at gen-batch 248, so they swap.
+    case "$DEAI_REWARD" in
+        quick|neural-quick) VRAM_DEFAULT=high ;;
+        *) VRAM_DEFAULT=medium ;;
+    esac
+    DEAI_VRAM="${DEAI_VRAM:-$VRAM_DEFAULT}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-248}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-4}"
 else
     DEAI_VRAM="${DEAI_VRAM:-medium}" DEAI_GEN_BATCH="${DEAI_GEN_BATCH:-32}" DEAI_BATCH_SIZE="${DEAI_BATCH_SIZE:-1}"
 fi

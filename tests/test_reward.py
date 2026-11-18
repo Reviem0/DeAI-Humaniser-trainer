@@ -11,7 +11,7 @@ import random
 
 import pytest
 
-from deai.reward import (Reward, RewardConfig, chunk_sentences, split_sentences,
+from deai.reward import (Reward, RewardConfig, chunk_sentences, mesmer_factor, split_sentences,
                          unicode_problems, word_count)
 
 SOURCE = (
@@ -351,6 +351,70 @@ def test_mesmer_runs_last_and_only_on_survivors():
     res = reward.check_gates([SOURCE, SOURCE], [truncate(PARAPHRASE), PARAPHRASE])
     assert res[0].failed_gate == "length" and res[0].gate("mesmer") is None
     assert res[1].gates[-1].name == "mesmer" and models.calls == [PARAPHRASE]
+
+
+def test_mesmer_factor_is_log_scaled_with_a_floor():
+    assert mesmer_factor(1.0) == pytest.approx(1.0)
+    assert mesmer_factor(1e-6) == pytest.approx(0.5) and mesmer_factor(1e-12) == pytest.approx(0.5)
+    assert mesmer_factor(1e-3) == pytest.approx(0.75)
+    # each decade counts the same, so saturated p_human still gives signal
+    assert mesmer_factor(1e-4) - mesmer_factor(1e-5) == pytest.approx(mesmer_factor(1e-1) - mesmer_factor(1e-2))
+    assert mesmer_factor(1e-3, weight=0.2) == pytest.approx(0.9)
+
+
+class PerTextMesmer(PassAll):
+    """PassAll whose Mesmer reads (verdict, p_human) from a dict keyed by rewrite text."""
+
+    def __init__(self, by_text):
+        self.by_text, self.calls = by_text, []
+
+    def ai_verdicts(self, texts):
+        self.calls.extend(texts)
+        out = []
+        for t in texts:
+            verdict, h = self.by_text[t]
+            out.append((verdict, (h, 1 - h, 0.0)))
+        return out
+
+
+def test_mesmer_soft_scales_reward_without_gating():
+    det = AlwaysHuman()
+    reward = Reward(detector=det, models=StubMesmer("ai"), config=RewardConfig(mesmer="soft"))
+    r = asyncio.run(reward.score([SOURCE], [PARAPHRASE]))[0]
+    assert r.passed and r.gate("mesmer") is None and det.calls == [PARAPHRASE]
+    assert r.mesmer_verdict == "ai" and r.mesmer_probs == StubMesmer.PROBS["ai"]
+    assert r.reward == pytest.approx(mesmer_factor(0.05))
+
+
+def test_mesmer_soft_only_scores_rewrites_that_passed_the_gates():
+    models = StubMesmer("human")
+    reward = Reward(detector=AlwaysHuman(), models=models, config=RewardConfig(mesmer="soft"))
+    res = asyncio.run(reward.score([SOURCE, SOURCE], [truncate(PARAPHRASE), PARAPHRASE]))
+    assert res[0].failed_gate == "length" and res[0].reward == 0.0 and res[0].mesmer_probs is None
+    assert models.calls == [PARAPHRASE]
+
+
+def test_mesmer_soft_ranks_by_p_human_when_everything_is_ai():
+    a, b = PARAPHRASE, PARAPHRASE + " Indeed."
+    models = PerTextMesmer({a: ("ai", 1e-5), b: ("ai", 1e-3)})
+    reward = Reward(detector=AlwaysHuman(), models=models, config=RewardConfig(mesmer="soft"))
+    ra, rb = asyncio.run(reward.score([SOURCE, SOURCE], [a, b]))
+    assert ra.passed and rb.passed and 0 < ra.reward < rb.reward
+
+
+def test_mesmer_adaptive_gates_a_source_once_one_rewrite_gets_past():
+    a, b = PARAPHRASE, PARAPHRASE + " Indeed."
+    other = SOURCE + " More."
+    models = PerTextMesmer({a: ("ai", 1e-5), b: ("ai_edited", 1e-2)})
+    det = AlwaysHuman()
+    reward = Reward(detector=det, models=models, config=RewardConfig(mesmer="adaptive"))
+    # SOURCE has a rewrite Mesmer doesn't call "ai", so its "ai" one fails the gate;
+    # `other` has only "ai" rewrites, so it stays soft.
+    ra, rb, rc = asyncio.run(reward.score([SOURCE, SOURCE, other], [a, b, a]))
+    assert ra.failed_gate == "mesmer" and ra.reward == 0.0
+    assert rb.passed and rb.gate("mesmer").passed and rb.reward == pytest.approx(mesmer_factor(1e-2))
+    assert rc.passed and rc.gate("mesmer") is None and rc.reward == pytest.approx(mesmer_factor(1e-5))
+    assert sorted(det.calls) == sorted([b, a])  # the gated rewrite never reaches the detector
 
 
 def test_unknown_mesmer_mode_is_refused():
